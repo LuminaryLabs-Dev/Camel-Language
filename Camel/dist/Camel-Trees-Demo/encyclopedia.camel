@@ -1,0 +1,110 @@
+record Findings {
+    string[] facts;
+    string[] observations;
+    string[] sources;
+}
+
+record Review {
+    bool approved;
+    string[] changes;
+    string summary;
+}
+
+record PageDraft {
+    string title;
+    string html;
+    string[] sources;
+}
+
+tool string Search(string query) {
+    description = "Find current, reputable information about trees.";
+    handler = "web.search";
+}
+
+tool string WriteFile(string path, string content) {
+    description = "Create or update a safe relative project artifact.";
+    handler = "files.write";
+}
+
+policy ResearchPolicy {
+    allowTools = [Search];
+    maxToolCalls = 6;
+    allowNetwork = true;
+    allowFileRead = false;
+    allowShell = false;
+}
+
+agent Naturalist {
+    model = env("CAMEL_LM_MODEL");
+    system = "You are the field naturalist. Choose a different tree species each round when possible. Produce accurate, plain-language findings. Use Search when useful, but continue from your knowledge if the network is unavailable.";
+    tools = [Search];
+    policy = ResearchPolicy;
+    response = Findings;
+    maxTurns = 5;
+    retries = 1;
+}
+
+agent Ecologist {
+    model = env("CAMEL_LM_MODEL");
+    system = "You are the forest ecologist. Independently investigate ecology, habitat, relationships, and conservation context. Choose a different species each round when possible and distinguish facts from uncertainty.";
+    tools = [Search];
+    policy = ResearchPolicy;
+    response = Findings;
+    maxTurns = 5;
+    retries = 1;
+}
+
+agent Editor {
+    model = env("CAMEL_LM_MODEL");
+    system = "You are the encyclopedia editor. Turn supplied findings into a complete accessible HTML page. Return JSON matching PageDraft. The html field must contain only a self-contained HTML document with inline CSS, semantic headings, paragraphs, lists, and source links.";
+    response = PageDraft;
+    maxTurns = 3;
+    retries = 1;
+}
+
+agent Reviewer {
+    model = env("CAMEL_LM_MODEL");
+    system = "You are the fact-checking and accessibility reviewer. Inspect the proposed tree page for unsupported claims, missing context, broken HTML, and readability problems. Return JSON matching Review.";
+    response = Review;
+    maxTurns = 3;
+    retries = 1;
+}
+
+workflow Main() {
+    int round = 1;
+    while (true) {
+        log($"===== CONTINUOUS TREE ENCYCLOPEDIA ROUND {round} =====");
+
+        Task<AgentResult> naturalistWork = spawn Naturalist.run($"Research one distinctive tree species for an encyclopedia page. This is continuous round {round}; avoid species already used in prior pages when possible.");
+        Task<AgentResult> ecologistWork = spawn Ecologist.run($"Research a different tree species and explain its ecology, habitat, relationships, and conservation context for an encyclopedia page. This is continuous round {round}.");
+
+        AgentResult naturalist = await naturalistWork;
+        AgentResult ecologist = await ecologistWork;
+        log($"NATURALIST FINDINGS\n{naturalist.text}");
+        log($"ECOLOGIST FINDINGS\n{ecologist.text}");
+
+        AgentResult draft = await Editor.run($"Create an encyclopedia page using these independent findings. Resolve conflicts conservatively and include a Sources section.\n\nNATURALIST:\n{naturalist.text}\n\nECOLOGIST:\n{ecologist.text}");
+        log($"EDITOR DRAFT\n{draft.text}");
+
+        AgentResult review = await Reviewer.run($"Review this proposed tree encyclopedia page.\n\n{draft.data.html}");
+        log($"REVIEW\n{review.text}");
+
+        AgentResult finalDraft = await Editor.run($"Revise the previous draft using this review. Preserve accurate facts, repair accessibility and HTML issues, and return the complete final PageDraft JSON.\n\nREVIEW:\n{review.text}", new {
+            history = draft.history
+        });
+        log($"FINAL PAGE\n{finalDraft.text}");
+
+        string pagePath = $"encyclopedia/trees/tree-{round}.html";
+        string pageStatus = WriteFile(pagePath, finalDraft.data.html);
+        string transcript = $"ROUND {round}\n\nNATURALIST\n{naturalist.text}\n\nECOLOGIST\n{ecologist.text}\n\nEDITOR DRAFT\n{draft.text}\n\nREVIEW\n{review.text}\n\nFINAL PAGE\n{finalDraft.text}\n";
+        string logStatus = WriteFile($"logs/round-{round}.txt", transcript);
+
+        if (pageStatus.startsWith("created")) {
+            log($"NEW HTML PAGE CREATED: {pagePath}");
+        } else {
+            log($"HTML PAGE UPDATED: {pagePath}");
+        }
+        log($"CONVERSATION LOG SAVED: {logStatus}");
+        round++;
+    }
+}
