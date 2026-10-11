@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "libraries": [
+    {
+      "name": "standard",
+      "description": "String joining helper.",
+      "repository": "https://github.com/LuminaryLabs-Dev/Camel-Language",
+      "path": "libraries/standard",
+      "files": ["core.camel"]
+    }
+  ]
+}
