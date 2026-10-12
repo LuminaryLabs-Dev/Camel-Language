@@ -1,0 +1,21 @@
+name: Camel library manager
+on:
+  push:
+    paths: ["packages/camel-library-manager/**", "libraries/**", ".github/workflows/library-manager.yml"]
+  pull_request:
+    paths: ["packages/camel-library-manager/**", "libraries/**", ".github/workflows/library-manager.yml"]
+  workflow_dispatch:
+jobs:
+  package:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --manifest-path packages/camel-library-manager/Cargo.toml --check
+      - run: cargo clippy --manifest-path packages/camel-library-manager/Cargo.toml --locked --all-targets -- -D warnings
+      - run: cargo test --manifest-path packages/camel-library-manager/Cargo.toml --locked

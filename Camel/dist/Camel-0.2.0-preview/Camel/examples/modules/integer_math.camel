@@ -1,0 +1,19 @@
+int Fibonacci(int n) {
+    assert(n >= 0, "Fibonacci requires a nonnegative argument");
+    int previous = 0;
+    int current = 1;
+    for (int i = 0; i < n; i++) {
+        int next = previous + current;
+        previous = current;
+        current = next;
+    }
+    return previous;
+}
+
+int SumSquares(int count) {
+    int total = 0;
+    foreach (int n in range(1, count + 1)) {
+        total += n * n;
+    }
+    return total;
+}

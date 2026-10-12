@@ -1,0 +1,39 @@
+record Plan {
+    string topic;
+    string[] actions;
+    string[] uncertainties;
+}
+
+tool int CharacterCount(string text) {
+    description = "Count Unicode scalar characters in supplied text.";
+    handler = "text.length";
+}
+
+policy ReasonOnly {
+    allowTools = [CharacterCount];
+    maxToolCalls = 2;
+    allowNetwork = false;
+    allowFileRead = false;
+    allowFileWrite = false;
+    allowShell = false;
+}
+
+agent Planner {
+    model = env("CAMEL_LM_MODEL", "LiquidAI/LFM2.5-1.2B-Thinking");
+    system = "Produce an actionable plan using only the supplied notes. State uncertainty explicitly. You may count characters using CharacterCount. Do not invent confirmed facts.";
+    response = Plan;
+    tools = [CharacterCount];
+    policy = ReasonOnly;
+    maxTurns = 4;
+    retries = 1;
+}
+
+AgentResult Ask(Agent worker, string prompt) {
+    return await worker.run(prompt);
+}
+
+workflow Plan Main(string notes, string topic = "general") {
+    Task<AgentResult> work = spawn Ask(Planner, $"Topic: {topic}\nNotes: {notes}");
+    AgentResult result = await work;
+    return result.data;
+}

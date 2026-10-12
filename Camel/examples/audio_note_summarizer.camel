@@ -1,0 +1,63 @@
+record Transcript {
+    string text;
+    string language;
+}
+
+record NoteSummary {
+    string topic;
+    string summary;
+    string[] keyPoints;
+    string[] actionItems;
+    string[] uncertainties;
+}
+
+record AudioNote {
+    Transcript transcript;
+    NoteSummary summary;
+}
+
+policy LocalOnly {
+    maxToolCalls = 0;
+    allowNetwork = false;
+    allowFileRead = false;
+    allowShell = false;
+}
+
+agent AudioTranscriber {
+    model = env("CAMEL_AUDIO_MODEL", "LiquidAI/LFM2.5-Audio-1.5B-GGUF");
+    system = "Perform automatic speech recognition. Transcribe the supplied audio faithfully. Preserve names, numbers, and technical terms when audible. Do not summarize, infer missing words, or invent content. Return only the spoken transcript.";
+    policy = LocalOnly;
+    maxTurns = 1;
+    retries = 1;
+}
+
+agent NoteSummarizer {
+    model = env("CAMEL_SUMMARY_MODEL", "LiquidAI/LFM2.5-1.2B-Thinking");
+    system = "You summarize meeting and voice notes. Prioritize information relevant to the requested topic. Separate confirmed points from uncertainty, extract concrete action items, and do not add facts absent from the transcript. Return only the NoteSummary record.";
+    policy = LocalOnly;
+    response = NoteSummary;
+    maxTurns = 2;
+    retries = 1;
+}
+
+AudioNote Summarize(Audio input, string topic) {
+    AgentResult transcriptResult = await AudioTranscriber.run(new {
+        text = "Transcribe the live microphone recording.",
+        audio = input
+    });
+
+    Transcript transcript = new Transcript { text = transcriptResult.text, language = "unknown" };
+    log($"TRANSCRIPT\n{transcript.text}");
+
+    AgentResult summaryResult = await NoteSummarizer.run($"Requested topic: {topic}\n\nTranscript:\n{transcript.text}");
+    log($"SUMMARY_JSON\n{json.stringify(summaryResult.data)}");
+    return new AudioNote { transcript = transcript, summary = summaryResult.data };
+}
+
+workflow AudioNote Main(string topic = "general", int durationSeconds = 30) {
+    return Summarize(record(durationSeconds), topic);
+}
+
+workflow AudioNote FromFile(string audioPath, string topic = "general") {
+    return Summarize(audio.load(audioPath), topic);
+}
