@@ -70,10 +70,19 @@ pub fn resolve_import(import: &str) -> Result<PathBuf> {
 
 /// Read a JSON file or URL, preferring this repository's catalog when omitted.
 pub fn catalog(source: Option<&str>) -> Result<Catalog> {
+    let installed_catalog = std::env::current_exe()
+        .ok()
+        .and_then(|exe| {
+            exe.parent()
+                .and_then(Path::parent)
+                .map(|root| root.join("libraries/index.json"))
+        })
+        .filter(|path| path.is_file());
     let text = match source {
         Some(path) if !path.starts_with("http://") && !path.starts_with("https://") => {
             fs::read_to_string(path)?
         }
+        None if installed_catalog.is_some() => fs::read_to_string(installed_catalog.unwrap())?,
         None if Path::new(CATALOG_PATH).is_file() => fs::read_to_string(CATALOG_PATH)?,
         _ => client()?
             .get(source.unwrap_or(CATALOG_URL))
