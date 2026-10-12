@@ -31,6 +31,7 @@ enum Action {
 }
 
 pub struct Wizard {
+    logo: egui::TextureHandle,
     bundle_root: PathBuf,
     bundle: Result<Bundle, String>,
     destination: String,
@@ -61,8 +62,20 @@ impl Wizard {
             .text_styles
             .insert(TextStyle::Monospace, FontId::monospace(14.0));
         cc.egui_ctx.set_style(style);
+        let pixels = image::load_from_memory(include_bytes!("../../docs/images/camel-logo.png"))
+            .expect("embedded Camel logo must be a valid PNG")
+            .to_rgba8();
+        let logo = cc.egui_ctx.load_texture(
+            "camel-logo",
+            egui::ColorImage::from_rgba_unmultiplied(
+                [pixels.width() as usize, pixels.height() as usize],
+                pixels.as_raw(),
+            ),
+            egui::TextureOptions::LINEAR,
+        );
         let bundle = Bundle::load(&bundle_root).map_err(|e| e.to_string());
         Self {
+            logo,
             bundle_root,
             bundle,
             destination: install::default_destination()
@@ -136,6 +149,36 @@ impl eframe::App for Wizard {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
         }
         let mut action = Action::None;
+        egui::TopBottomPanel::top("branding")
+            .exact_height(184.0)
+            .frame(
+                egui::Frame::new()
+                    .fill(Color32::from_rgb(20, 13, 7))
+                    .inner_margin(egui::Margin::same(12)),
+            )
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::Image::new(&self.logo).fit_to_exact_size(egui::vec2(240.0, 160.0)),
+                    );
+                    ui.add_space(22.0);
+                    ui.vertical(|ui| {
+                        ui.add_space(28.0);
+                        ui.label(
+                            RichText::new("Camel Setup")
+                                .size(34.0)
+                                .strong()
+                                .color(Color32::from_rgb(255, 224, 178)),
+                        );
+                        ui.add_space(8.0);
+                        ui.label(
+                            RichText::new("Programming language for agents")
+                                .size(16.0)
+                                .color(Color32::from_rgb(232, 204, 173)),
+                        );
+                    });
+                });
+            });
         egui::SidePanel::left("steps")
             .exact_width(175.0)
             .resizable(false)

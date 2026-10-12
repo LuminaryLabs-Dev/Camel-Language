@@ -7,7 +7,7 @@ description = "Native cross-platform installation wizard for Camel distributions
 license = "Apache-2.0"
 
 [features]
-capture = ["dep:image"]
+capture = []
 
 [dependencies]
 eframe = { version = "=0.33.3", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
@@ -16,7 +16,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ring = "0.17"
 tempfile = "3"
-image = { version = "0.25", default-features = false, features = ["png"], optional = true }
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [profile.dev]
 debug = 0

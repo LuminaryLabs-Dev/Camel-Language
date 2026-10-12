@@ -43,8 +43,8 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         "Camel Setup",
         eframe::NativeOptions {
             viewport: eframe::egui::ViewportBuilder::default()
-                .with_inner_size([780.0, 560.0])
-                .with_min_inner_size([720.0, 520.0]),
+                .with_inner_size([860.0, 740.0])
+                .with_min_inner_size([780.0, 700.0]),
             renderer: eframe::Renderer::Glow,
             ..Default::default()
         },
