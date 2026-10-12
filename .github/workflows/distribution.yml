@@ -37,6 +37,29 @@ jobs:
         run: |
           $includeStudio = '${{ github.event_name == 'pull_request' || inputs.include_studio }}' -eq 'true'
           ./scripts/package-preview.ps1 -IncludeStudio:$includeStudio
+      - name: Verify native install and repeated upgrade
+        shell: pwsh
+        run: |
+          $archive = @(Get-ChildItem Camel/dist/*-setup.zip)[0].FullName
+          $bundle = Join-Path $env:RUNNER_TEMP 'camel-setup-bundle'
+          $destination = Join-Path $env:RUNNER_TEMP 'camel-setup-installation'
+          [IO.Compression.ZipFile]::ExtractToDirectory($archive, $bundle)
+          $setup = if ($IsWindows) { Join-Path $bundle 'Camel-Setup.exe' } else { Join-Path $bundle 'camel-setup' }
+          if (-not $IsWindows) { chmod u+x $setup }
+          foreach ($attempt in 1..2) {
+            if ($IsWindows) {
+              $process = Start-Process -FilePath $setup -ArgumentList @('--bundle', ('"' + $bundle + '"'), '--install-to', ('"' + $destination + '"'), '--no-path') -WindowStyle Hidden -Wait -PassThru
+              if ($process.ExitCode -ne 0) { throw "Installer failed on pass $attempt with exit $($process.ExitCode)." }
+            } else {
+              & $setup --bundle $bundle --install-to $destination --no-path
+              if ($LASTEXITCODE -ne 0) { throw "Installer failed on pass $attempt." }
+            }
+          }
+          $camel = Join-Path $destination $(if ($IsWindows) { 'bin/camel.exe' } else { 'bin/camel' })
+          & $camel --version
+          if ($LASTEXITCODE -ne 0) { throw 'Installed Camel did not start.' }
+          & $camel library list
+          if ($LASTEXITCODE -ne 0) { throw 'Installed Camel could not read its bundled catalog.' }
       - uses: actions/upload-artifact@v4
         with:
           name: Camel-Setup-${{ runner.os }}-${{ runner.arch }}
