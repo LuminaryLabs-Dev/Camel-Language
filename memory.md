@@ -1,5 +1,31 @@
 # Camel Project Memory
 
+## High-level next-step planning — 2026-10-12
+
+- User asks for a high-level sequence to organize Camel's next steps; this is planning only.
+- Current project has a working Rust language/runtime, Camel Studio, library manager, and native cross-platform installer/distributions. Latest memory records successful Windows/macOS/Linux distribution CI and archive verification; visible native GUI QA was Windows-only.
+- The canonical worktree still has pending installer, packaging, package-manager, and README changes. Treat release closure and a clean, reproducible cross-platform preview as the immediate milestone before expanding the language.
+- Suggested sequence: (1) reconcile and finish current preview changes/CI; (2) complete manual native install/launch checks and address release signing/notarization decisions; (3) pick one primary user workflow and harden its end-to-end experience; (4) only then prioritize language milestones from docs/LANGUAGE_SPEC.md; (5) prepare contributor/community materials and revisit public visibility only with explicit authorization.
+- Highest-value product validation gap: actual LM Studio/Liquid audio inference remains unverified. Keep the audio demo experimental unless that provider path is proven; use the offline programming example as the dependable quickstart meanwhile.
+- No extra plugin is needed for this repository-grounded roadmap; next-it and plan-it cover the planning work.
+
+## Distribution installer intent — 2026-10-12
+
+- User requests the selected Camel logo prominently in the graphical wizard. Embed docs/images/camel-logo.png in the setup executable, decode/load it once, and show it in a persistent large branding header on all wizard screens. Refresh native installer archives while preserving existing distributions and private repository visibility.
+
+- Completed logo branding in installer/src/ui.rs and enabled PNG decoding in ordinary builds. Native renderer screenshot at installer/target/setup-logo.png shows the selected golden Camel logo prominently in the persistent dark header. Logo is embedded directly in each setup executable and loaded once per wizard instance.
+- Local compile, strict Clippy, and temporary installation of the branded Windows bundle pass. Private draft PR #1 now includes commit bb0cf6752552f6184aeddfe1b28888c3b5a21f29. Distribution run 38284259849 succeeded on Windows, macOS, and Linux, including install and repeated-upgrade checks.
+- Refreshed and verified all three native Studio-inclusive archives in Camel/dist: Camel-0.2.0-preview-windows-x86_64-studio-logo-setup.zip, Camel-0.2.0-preview-macos-aarch64-studio-logo-setup.zip, and Camel-0.2.0-preview-linux-x86_64-studio-logo-setup.zip. Outer artifact digests and each installation payload checksum verified. Prior archives are preserved. A separate CLI-only branded Windows ZIP is also available.
+
+- Follow-up user request: place macOS and Linux installer distributions in local Camel/dist too. Downloaded the successful private GitHub Actions artifacts from run 38213683842, commit d8fcfbe629186dd8f4bb46af0ce06faee2aa5b24, and extracted the inner setup ZIPs without overwriting existing archives.
+- Added Camel/dist/Camel-0.2.0-preview-macos-aarch64-studio-setup.zip (Apple Silicon) and Camel/dist/Camel-0.2.0-preview-linux-x86_64-studio-setup.zip. Both include the graphical setup wizard, Camel CLI, and Camel Studio. These are genuine native builds; Intel macOS and Linux ARM64 binaries were not built by this matrix.
+- Verified each downloaded outer artifact against its GitHub SHA-256 digest, every inner installation payload checksum, the matching OS/architecture manifest, the graphical launcher, and Studio's presence. All three native distribution CI jobs succeeded, including isolated install and repeated-upgrade smoke checks with PATH disabled. Native GUI appearance was observed locally on Windows only.
+- Source changes remain in private draft PR https://github.com/LuminaryLabs-Dev/Camel-Language/pull/1 . Existing runtime/Studio strict CI lint failures are separate from the successful distribution jobs; repository visibility remains private.
+
+- User requests a distributable with an installation wizard that adds Camel to PATH across operating systems, and selects a graphical setup wizard for Windows, macOS, and Linux.
+- Apply atomize-it and app-paths-it. Native eframe capabilities already used by Studio fit a reusable GUI; no additional plugin is necessary. Repository remains private per the user's previous instruction.
+- Implement an independent installer/ Rust crate, per-user installation defaults and persistent PATH configuration, platform/architecture-specific bundles, packaging integration, and distribution CI. Keep library data separate from installed program files and avoid modifying the workstation's actual installation/PATH during checks.
+
 ## Camel logo — 2026-10-11
 
 - User selected the earlier abstract glass workflow-loop image as Camel's logo, despite later iterations adding legs and refining transparency.
@@ -7,6 +33,8 @@
 - The logo represents branching/await/return workflow paths with a camel-like head and hump; the user rejected the familiar side-profile cigarette-pack stance.
 
 ## Standalone library package implementation — 2026-10-11
+
+- User replied "Not yet" to changing the private repository's visibility. Keep Camel-Language private; defer public access and do not change visibility or publish the package elsewhere without subsequent user authorization. The package already added to the private repository remains there.
 
 - User authorized implementing the separate manager package, repository listing, and GitHub links with "Please do this." This supersedes the earlier advice-only status below.
 - Created packages/camel-library-manager version 0.2.0 with Cargo metadata, Apache-2.0 LICENSE, README, lockfile, and independent Rust implementation. No root Cargo workspace was added; existing runtime and Studio target locations are preserved.

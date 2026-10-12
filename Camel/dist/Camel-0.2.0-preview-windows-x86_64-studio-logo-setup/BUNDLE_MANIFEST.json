@@ -1,0 +1,286 @@
+[
+  {
+    "path": ".github/workflows/distribution.yml",
+    "sha256": "f2efb74871459d8f14a458ef2fbaee642d49880084ba59fe39ae61c8cecc05fd"
+  },
+  {
+    "path": ".gitignore",
+    "sha256": "2f49520e9d78d7cc22bddc5183f5bd25574b8cc0efb52436877a25ce36829834"
+  },
+  {
+    "path": "bin/camel-audio-runtime.exe",
+    "sha256": "fcf453a8a5a6651fa104fb83183c1cf391ea35e0acd1721c652468af8bfd414b"
+  },
+  {
+    "path": "bin/camel-studio.exe",
+    "sha256": "556d5d5a326879eb72c83565699f784ee34ee5c18ab6d2c94144e204ed09e7dd"
+  },
+  {
+    "path": "bin/camel.exe",
+    "sha256": "9e79a512f7836a5821fee92d08c2ba1d9530809f2b886907bd05b2dbb937df84"
+  },
+  {
+    "path": "Camel-Setup.exe",
+    "sha256": "40fb6bc1193944457ad0f3e0d7dee5a1529fb23eef50ef5c498d0045a3c583d9"
+  },
+  {
+    "path": "Camel/docs/AUDIO_NOTE_SUMMARIZER.md",
+    "sha256": "5ef6bebcf26ac56aec796d8b0a4a31eeb2b658a94d5a2f7f28373b5157bf7964"
+  },
+  {
+    "path": "Camel/examples/agent_planner.camel",
+    "sha256": "a8fff7ca58a0fcb326e34516d9a928d5f59cd0beb92611fd4b0de2416766411e"
+  },
+  {
+    "path": "Camel/examples/audio_note_summarizer.camel",
+    "sha256": "696ae34fcc92d5ca0536cdf6df070604856a30eaee98067ebb3b798423b55049"
+  },
+  {
+    "path": "Camel/examples/modules/integer_math.camel",
+    "sha256": "3419ef0749af973cb989019995bc285b6112a809cdba376bdaf1fe25227b7ce7"
+  },
+  {
+    "path": "Camel/examples/orchestration.camel",
+    "sha256": "e7fd30f7d5ef784b6bc430f599bf6a81ef673fb8aa68147f8063b38bc5177287"
+  },
+  {
+    "path": "Camel/examples/programming_core.camel",
+    "sha256": "ec1962a735de29867cd9d855a9a5cb3216d35ca33b68c5c6590d784c6d6902f0"
+  },
+  {
+    "path": "docs/images/camel-logo.png",
+    "sha256": "c1663a6f66018fd4ffe389746a4b2f10d392f90d9de91ed78a0a8054bac9d130"
+  },
+  {
+    "path": "docs/images/camel-studio.png",
+    "sha256": "7c94e3c384cd52307cf91a45c47d621c4829595d7a7f7dd696cceed4a3ed810a"
+  },
+  {
+    "path": "docs/INSTALLATION.md",
+    "sha256": "86c5e46b683eca5c718602794b6701b22ba3592c155f9d0b7c78955dc9ba08cb"
+  },
+  {
+    "path": "docs/LANGUAGE_SPEC.md",
+    "sha256": "3151f0da14e10b20dfdd39ee345e6d1d846e646d335d26908864061a04376dbd"
+  },
+  {
+    "path": "docs/REPOSITORY_RECOVERY.md",
+    "sha256": "08b64707dd7ee4f328252daff938102dae75391ca46164005c1b93e2c871ef4b"
+  },
+  {
+    "path": "installer/Cargo.lock",
+    "sha256": "7071b4570f946b2f6d4642d2a8b2079e6a992a7a2d2be4b64ac896a85fed2f25"
+  },
+  {
+    "path": "installer/Cargo.toml",
+    "sha256": "aeb398370975312b7ab20888aa862e17bb601ffe539c761d1be59f3bfa34381b"
+  },
+  {
+    "path": "installer/README.md",
+    "sha256": "1502c3aad7c2d978707097407e015a642a65a7cbeb3502b383e0b043c5d3ba1f"
+  },
+  {
+    "path": "installer/src/bundle.rs",
+    "sha256": "c996f54cbab563ed5f7b782b5bdbcd73efc8373d5fbf5abc535c6e6fd368cf3c"
+  },
+  {
+    "path": "installer/src/install.rs",
+    "sha256": "0200e573a2ce9ba83c245c3a7d945ce41e251cbadf717b862cab4a4dad25d900"
+  },
+  {
+    "path": "installer/src/lib.rs",
+    "sha256": "abc15e42e2548f0face6fc54544d476dfa30cc0794524de283d53508e87dfe28"
+  },
+  {
+    "path": "installer/src/main.rs",
+    "sha256": "3b258dd2208607652d3c35fae5b4020b95058de3b315968c1f86e541fe2d8d50"
+  },
+  {
+    "path": "installer/src/path.rs",
+    "sha256": "b2611c60022482772de90fbb88657a1203b0d11855230ca9dd66e632f78c8ea9"
+  },
+  {
+    "path": "installer/src/ui.rs",
+    "sha256": "0875938807f019ed7d12294a6f23e08788f8f8f3ce7f5305d194f0c26a85bc69"
+  },
+  {
+    "path": "libraries/index.json",
+    "sha256": "38b7518026a5a4eaab1aea253ed7a01724a340733d7568ad402fdd19e6300b85"
+  },
+  {
+    "path": "libraries/README.md",
+    "sha256": "24babf52ec728bc0ac0f0984edd20bbb9096e98fe0901f3da9d3c167a4f37133"
+  },
+  {
+    "path": "libraries/standard/core.camel",
+    "sha256": "2615af29686b4648979fc8ef5412300d15f635908b4d8ed7aa44328c1deecfeb"
+  },
+  {
+    "path": "LICENSE",
+    "sha256": "313605fbac6945e9324d4825470796b5b7dbc012f523fdc181f6e6fd234eb88f"
+  },
+  {
+    "path": "packages/camel-library-manager/Cargo.lock",
+    "sha256": "8e3ddc103d2c15844358b8c60cf5f72d83c684c9970cf86b5b0a344c2af52074"
+  },
+  {
+    "path": "packages/camel-library-manager/Cargo.toml",
+    "sha256": "27a1a857ec22435989dab544ab7a2bce956e86da23703f16e00bc23d6da36c9c"
+  },
+  {
+    "path": "packages/camel-library-manager/LICENSE",
+    "sha256": "313605fbac6945e9324d4825470796b5b7dbc012f523fdc181f6e6fd234eb88f"
+  },
+  {
+    "path": "packages/camel-library-manager/README.md",
+    "sha256": "3ae1873572ef46e4fd45b28a79c181848b8b01dcc5d51f8c4f7a5fc95492952b"
+  },
+  {
+    "path": "packages/camel-library-manager/src/lib.rs",
+    "sha256": "61669c5adfb11c58a5b9485ef5321ad86b432e76e1a5a7dfcf9cd2ce4a68e413"
+  },
+  {
+    "path": "packages/README.md",
+    "sha256": "dbbf7595f22d672d2e00d6218a2b3925ac15dc22a670e1518eb9335734ed0e0f"
+  },
+  {
+    "path": "README.md",
+    "sha256": "d55cc2cd2616438b472705f113062552de01ca8c5898b0da4edf0a68ebb62149"
+  },
+  {
+    "path": "runtime/Cargo.lock",
+    "sha256": "b708a8f20c6ca22687b916f17c7a976da6dde76679ee8a46d4062f969b5a8c56"
+  },
+  {
+    "path": "runtime/Cargo.toml",
+    "sha256": "bf8d44be7040d7f49106263b3c7fe0d86757f5b19970ec559821984746a081b8"
+  },
+  {
+    "path": "runtime/README.md",
+    "sha256": "e77785f620890bcd7034e4a792e73798e09094022034c0ef7bbb84b3f77afab9"
+  },
+  {
+    "path": "runtime/src/bin/camel-audio-runtime.rs",
+    "sha256": "9b59539642a9ab0ac5597cf4d1e7fcb81a8bee0e403c78eec1ad92d94a9a3667"
+  },
+  {
+    "path": "runtime/src/language/agents.rs",
+    "sha256": "c2e03e9f16e4110849e6efa59ba96b1f56fbfe4784e57d9cb7feaf9640348089"
+  },
+  {
+    "path": "runtime/src/language/check.rs",
+    "sha256": "5397455106946bba3cc0738121c6c8c22233ca64519128d220e637c618e6a793"
+  },
+  {
+    "path": "runtime/src/language/eval.rs",
+    "sha256": "58a827573ab6be218541fa3dea6340aa86c65451d3145e6f32bc9d312593d9e2"
+  },
+  {
+    "path": "runtime/src/language/host.rs",
+    "sha256": "b90b9094998866cc8ba0ecd08eeba6bab5af6b9d7b8ee963f323a5ca27cdd0e1"
+  },
+  {
+    "path": "runtime/src/language/inspect.rs",
+    "sha256": "76f3343bfadfbc71324e0e23b0bff40014d1955c2932657c795427e2c193993a"
+  },
+  {
+    "path": "runtime/src/language/lexer.rs",
+    "sha256": "80339569abcedd87b5df075b0f2e6d7eb1b535cc11a66e1760f04fece98bbfa2"
+  },
+  {
+    "path": "runtime/src/language/mod.rs",
+    "sha256": "e2ca0fba562e7e3184be615da99f1236aa546b1be11c9a0083c146e7da8a9cc8"
+  },
+  {
+    "path": "runtime/src/language/parser.rs",
+    "sha256": "af1eecd48131f0ee4defa327e9eaf354bfac34b012337090c566433b2bcee6e0"
+  },
+  {
+    "path": "runtime/src/language/syntax.rs",
+    "sha256": "6e7375af38ef9a44374b173bfdfb9f8badfb0c3ec2be091db17f83b4424d65a3"
+  },
+  {
+    "path": "runtime/src/language/value.rs",
+    "sha256": "e44fd0d2d4af18ed90906222229e60eb8b44e6b12e2c63e9d05b00472c92fa9d"
+  },
+  {
+    "path": "runtime/src/lib.rs",
+    "sha256": "288913684712de805379df5dfa61a9c845f8d8d002a8bb5c3483b36188910001"
+  },
+  {
+    "path": "runtime/src/main.rs",
+    "sha256": "240a1649834c7b83412ef86c41d0ab8db1a41cdd7be43b5340cb5d0d72973337"
+  },
+  {
+    "path": "runtime/tests/cli.rs",
+    "sha256": "f7fe502ed8ec3575b2640170bb3dc44f55110d3933d3fe1938af050573472218"
+  },
+  {
+    "path": "runtime/tests/http_provider.rs",
+    "sha256": "0d772f9a3e4ba753da344538a8bb022be47341a09cdd346e7f291dbdfaff2a7e"
+  },
+  {
+    "path": "runtime/tests/language.rs",
+    "sha256": "252d8b71b091c982d91cfef1a09bbb79af025a9b2bbf6ff810639250f630a893"
+  },
+  {
+    "path": "runtime/tests/studio_api.rs",
+    "sha256": "6beb7ac7814d3a1dbd6f22f4fdbf2b636603b171defc03f1a3fedcece2dda89f"
+  },
+  {
+    "path": "scripts/install.sh",
+    "sha256": "e2cc0283ea7228efd32edb98b88bdc06241c80b972fdefdcb4c7427ae014d45a"
+  },
+  {
+    "path": "scripts/package-preview.ps1",
+    "sha256": "4549c62773e7347ff1df189248c5f7a0faddf80c1b1535c7d11eebdd6e4e09aa"
+  },
+  {
+    "path": "studio/Cargo.lock",
+    "sha256": "7ea29feb1cffec2eaef284da249f9811f52bfb29c3ee3998cce5f8ed30bbf266"
+  },
+  {
+    "path": "studio/Cargo.toml",
+    "sha256": "ef5f8695331410413b71336bb984b98c547da3a2e087fe226ddad6bece6de3f0"
+  },
+  {
+    "path": "studio/README.md",
+    "sha256": "4d071f8387d252718e8b4702ee5ed9970afc9c635333a3df26e3fba63fcde9c7"
+  },
+  {
+    "path": "studio/src/app.rs",
+    "sha256": "ee7729aba2d5b911d3026ac892bb50b7cc7b8ed915761d8d6ad02403c83f7763"
+  },
+  {
+    "path": "studio/src/capture.rs",
+    "sha256": "6085dc3616fb7b28fe654146693c10e2c5cd30d2dcd6535aba23e3f9fcc1db62"
+  },
+  {
+    "path": "studio/src/document.rs",
+    "sha256": "e3240caedda1f2d6f208d68b7763090b079fb4f45b51339e18296893b2e0d7b0"
+  },
+  {
+    "path": "studio/src/editor.rs",
+    "sha256": "16774e257b8084f9b91ebf17c1345e621dc1ba27b037bf6ff70a7a01864dfba4"
+  },
+  {
+    "path": "studio/src/lib.rs",
+    "sha256": "b40581069ab1a375c1ecea462f47bfde779dd11cf0be0a8b76c7b4f3dcafa33b"
+  },
+  {
+    "path": "studio/src/main.rs",
+    "sha256": "917d5bc0d47027c28cba005d93771955813c259b52a4237fa6d8d50869036315"
+  },
+  {
+    "path": "studio/src/runner.rs",
+    "sha256": "1941fe34c5c343fa03ed3f09b431d5d32c87dc4ac525b16efe7718acffff3d3f"
+  },
+  {
+    "path": "studio/src/worker.rs",
+    "sha256": "dd5958d5cd65b8d6f411dba17411f93048880d69cdeaa79a49d30bd1f0f00dca"
+  },
+  {
+    "path": "studio/tests/worker.rs",
+    "sha256": "c8ea7d141e87db332de935a371c6ac9d658fb8f21489d3913f17875f17e372e7"
+  }
+]

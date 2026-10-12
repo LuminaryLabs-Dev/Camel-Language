@@ -35,7 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-Other APIs: `installed_root()`, `installed_library(name)`, `resolve_import(path)`, `remove(name)`, and `validate(library)`. `catalog(Some(source))` accepts a JSON file path or HTTP(S) URL. A repository build defaults to the checked-out `libraries/index.json`; otherwise discovery reads GitHub. The package includes no interpreter, microphone backend, GUI, or standalone executable.
+Other APIs: `installed_root()`, `installed_library(name)`, `resolve_import(path)`, `remove(name)`, and `validate(library)`. `catalog(Some(source))` accepts a JSON file path or HTTP(S) URL. Discovery first reads the catalog beside an installed executable's `bin` directory, then the checked-out repository catalog, then GitHub. The package includes no interpreter, microphone backend, GUI, or standalone executable.
 
 ## Camel CLI integration
 
