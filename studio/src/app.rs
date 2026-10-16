@@ -1,10 +1,14 @@
 use crate::{
     document::{self, Document},
     editor,
+    library_manager::LibraryManager,
     runner::{Runner, Update},
     worker::Message,
 };
-use camel_audio_runtime::language::{CompiledProgram, Declaration, Error, ExecutionEvent, Site};
+use camel_audio_runtime::language::{
+    analyze_buffer, AnalysisResult, CompiledProgram, Declaration, Diagnostic, Error,
+    ExecutionEvent,
+};
 use eframe::egui::{self, Color32, FontId, Key, Modifiers, RichText};
 use std::{
     collections::VecDeque,
@@ -13,7 +17,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-type CheckResult = (u64, Result<Vec<Declaration>, Error>);
+type CheckResult = (u64, AnalysisResult);
 
 struct Argument {
     name: String,
@@ -29,6 +33,7 @@ struct Tab {
     checked: Option<u64>,
     changed: Instant,
     analysis: Vec<Declaration>,
+    diagnostics: Vec<Diagnostic>,
     error: Option<Error>,
     checking: Option<Receiver<CheckResult>>,
     workflow: String,
@@ -45,6 +50,7 @@ impl Tab {
             checked: None,
             changed: Instant::now() - Duration::from_secs(1),
             analysis: Vec::new(),
+            diagnostics: Vec::new(),
             error: None,
             checking: None,
             workflow: "Main".into(),
@@ -66,11 +72,13 @@ impl Tab {
             .into_iter()
             .map(|p| {
                 let previous = old.iter().find(|a| a.name == p.name && a.ty == p.ty);
-                let literal = p.default.as_ref().map(|d| {
+                let literal = p.default.as_ref().and_then(|d| {
                     if p.ty == "string" {
-                        serde_json::from_str::<String>(d).unwrap_or_default()
+                        serde_json::from_str::<String>(d).ok()
                     } else {
-                        d.clone()
+                        serde_json::from_str::<serde_json::Value>(d)
+                            .ok()
+                            .map(|_| d.clone())
                     }
                 });
                 Argument {
@@ -92,14 +100,33 @@ impl Tab {
             .rposition(|a| !a.use_default)
             .map(|n| n + 1)
             .unwrap_or(0);
-        self.arguments[..count].iter().map(|a| {
-            if a.use_default {
-                let d=a.default.as_deref().ok_or("Missing default")?;
-                if a.ty=="string" {serde_json::from_str::<String>(d).map_err(|_|format!("{} has an expression default. Enter it explicitly when supplying later parameters.",a.name))}
-                else if serde_json::from_str::<serde_json::Value>(d).is_ok() {Ok(d.into())}
-                else {Err(format!("Enter {} explicitly before supplying later parameters",a.name))}
-            } else {Ok(a.text.clone())}
-        }).collect()
+        self.arguments[..count]
+            .iter()
+            .map(|a| {
+                if a.use_default {
+                    let d = a.default.as_deref().ok_or("Missing default")?;
+                    if a.ty == "string" {
+                        serde_json::from_str::<String>(d).map_err(|_| {
+                            format!("Enter {} explicitly before supplying later inputs.", a.name)
+                        })
+                    } else if serde_json::from_str::<serde_json::Value>(d).is_ok() {
+                        Ok(d.into())
+                    } else {
+                        Err(format!(
+                            "Enter {} explicitly before supplying later parameters",
+                            a.name
+                        ))
+                    }
+                } else {
+                    Ok(a.text.clone())
+                }
+            })
+            .collect()
+    }
+    fn invalidate_analysis(&mut self) {
+        self.checked = None;
+        self.diagnostics.clear();
+        self.error = None;
     }
 }
 #[derive(Clone, Copy)]
@@ -135,7 +162,6 @@ struct Row {
     kind: String,
     name: String,
     detail: String,
-    site: Site,
     started: Instant,
     outcome: Option<(bool, u64)>,
 }
@@ -156,23 +182,20 @@ pub struct Studio {
     run_status: String,
     output: OutputTab,
     endpoint: String,
+    library_manager: LibraryManager,
     notice: Option<String>,
-    find_open: bool,
-    find_focus: bool,
-    find: String,
     pending: Option<Pending>,
     allow_close: bool,
     about: bool,
+    find_open: bool,
+    find_focus: bool,
+    find: String,
 }
 impl Studio {
     pub fn new(cc: &eframe::CreationContext<'_>, initial: Option<PathBuf>) -> Self {
         configure(&cc.egui_ctx);
         let mut app = Self::empty(discover_root(initial.as_deref()));
-        let path = initial.or_else(|| {
-            let path = app.root.join("Camel/examples/orchestration.camel");
-            path.exists().then_some(path)
-        });
-        if let Some(path) = path {
+        if let Some(path) = initial {
             app.open(&path);
         }
         if app.tabs.is_empty() {
@@ -199,13 +222,14 @@ impl Studio {
             output: OutputTab::Timeline,
             endpoint: std::env::var("CAMEL_LM_ENDPOINT")
                 .unwrap_or_else(|_| "http://localhost:1234".into()),
+            library_manager: LibraryManager::default(),
             notice: None,
-            find_open: false,
-            find_focus: false,
-            find: String::new(),
             pending: None,
             allow_close: false,
             about: false,
+            find_open: false,
+            find_focus: false,
+            find: String::new(),
         }
     }
     fn new_document(&mut self) {
@@ -250,7 +274,7 @@ impl Studio {
         match self.tabs[index].doc.save(&target) {
             Ok(()) => {
                 self.files = document::scripts(&self.root);
-                self.tabs[index].checked = None;
+                self.tabs[index].invalidate_analysis();
                 self.tabs[index].revision += 1;
                 true
             }
@@ -268,29 +292,26 @@ impl Studio {
                         tab.checking = None;
                         if revision == tab.revision {
                             tab.checked = Some(revision);
-                            match result {
-                                Ok(declarations) => {
-                                    tab.analysis = declarations;
-                                    tab.error = None;
-                                    let name = if tab
-                                        .analysis
+                            tab.analysis = result.declarations().to_vec();
+                            tab.diagnostics = result.diagnostics().to_vec();
+                            tab.error = tab.diagnostics.first().map(Diagnostic::to_error);
+                            if tab.error.is_none() && result.is_valid() {
+                                let name = if tab
+                                    .analysis
+                                    .iter()
+                                    .any(|d| d.kind == "workflow" && d.name == tab.workflow)
+                                {
+                                    tab.workflow.clone()
+                                } else {
+                                    tab.analysis
                                         .iter()
-                                        .any(|d| d.kind == "workflow" && d.name == tab.workflow)
-                                    {
-                                        tab.workflow.clone()
-                                    } else {
-                                        tab.analysis
-                                            .iter()
-                                            .find(|d| d.kind == "workflow")
-                                            .map(|d| d.name.clone())
-                                            .unwrap_or_default()
-                                    };
-                                    tab.select_workflow(name);
-                                }
-                                Err(error) => {
-                                    tab.error = Some(error);
-                                    tab.analysis.clear();
-                                }
+                                        .find(|d| d.kind == "workflow")
+                                        .map(|d| d.name.clone())
+                                        .unwrap_or_default()
+                                };
+                                tab.select_workflow(name);
+                            } else {
+                                tab.analysis.clear();
                             }
                         }
                     }
@@ -317,19 +338,7 @@ impl Studio {
                 match std::thread::Builder::new()
                     .name("studio-check".into())
                     .spawn(move || {
-                        let result = if source.len() > 1_048_576 {
-                            Err(Error::at(
-                                &Site {
-                                    file: path.display().to_string(),
-                                    line: 1,
-                                    column: 1,
-                                },
-                                "Studio supports scripts up to 1 MiB",
-                            ))
-                        } else {
-                            CompiledProgram::from_source_at(&path, &source)
-                                .map(|p| p.declarations())
-                        };
+                        let result = analyze_buffer(&path, &source);
                         let _ = tx.send((revision, result));
                     }) {
                     Ok(_) => tab.checking = Some(rx),
@@ -403,7 +412,14 @@ impl Studio {
                 self.console.clear();
                 self.result = None;
                 self.run_error = None;
-                self.run_name = format!("{} / {}", tab.doc.name(), entry);
+                let workflow_file = tab
+                    .doc
+                    .path
+                    .as_deref()
+                    .and_then(Path::file_stem)
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "Workflow".into());
+                self.run_name = format!("{workflow_file} / {entry}");
                 self.run_status = "Running".into();
                 self.output = OutputTab::Timeline;
             }
@@ -439,7 +455,7 @@ impl Studio {
                                 kind,
                                 name,
                                 detail,
-                                site,
+                                site: _,
                             } => {
                                 if self.rows.len() < 2000 {
                                     self.rows.push(Row {
@@ -447,7 +463,6 @@ impl Studio {
                                         kind,
                                         name,
                                         detail,
-                                        site,
                                         started: Instant::now(),
                                         outcome: None,
                                     });
@@ -500,15 +515,6 @@ impl Studio {
             }
         }
     }
-    fn jump(&mut self, site: Site) {
-        let path = PathBuf::from(&site.file);
-        if path.exists() {
-            self.open(&path);
-        }
-        if let Some(tab) = self.tabs.get_mut(self.active) {
-            tab.jump = Some((site.line, site.column));
-        }
-    }
     fn action(&mut self, action: Action, ctx: &egui::Context) {
         match action {
             Action::New => self.new_document(),
@@ -537,7 +543,7 @@ impl Studio {
                 self.save(self.active, true);
             }
             Action::Check => {
-                self.tabs[self.active].checked = None;
+                self.tabs[self.active].invalidate_analysis();
                 self.analyze(true);
                 self.output = OutputTab::Problems;
             }
@@ -597,10 +603,6 @@ impl Studio {
                     return Some(action);
                 }
             }
-            if i.consume_key(Modifiers::CTRL, Key::F) {
-                self.find_open = true;
-                self.find_focus = true;
-            }
             if i.consume_key(Modifiers::NONE, Key::Escape) {
                 self.find_open = false;
             }
@@ -611,8 +613,8 @@ impl Studio {
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
                 for (text, a) in [
-                    ("New script    Ctrl+N", Action::New),
-                    ("Open script…    Ctrl+O", Action::Open),
+                    ("New workflow    Ctrl+N", Action::New),
+                    ("Open workflow…    Ctrl+O", Action::Open),
                     ("Open folder…", Action::Folder),
                     ("Save    Ctrl+S", Action::Save),
                     ("Save As…    Ctrl+Shift+S", Action::SaveAs),
@@ -627,7 +629,7 @@ impl Studio {
             });
             ui.menu_button("Run", |ui| {
                 for (text, a) in [
-                    ("Check source    Ctrl+F5", Action::Check),
+                    ("Validate workflow    Ctrl+F5", Action::Check),
                     ("Run workflow    F5", Action::Run),
                     ("Stop execution    Shift+F5", Action::Stop),
                 ] {
@@ -638,12 +640,7 @@ impl Studio {
                 }
             });
             ui.menu_button("View", |ui| {
-                if ui.button("Find    Ctrl+F").clicked() {
-                    self.find_open = true;
-                    self.find_focus = true;
-                    ui.close();
-                }
-                if ui.button("Refresh project").clicked() {
+                if ui.button("Refresh project files").clicked() {
                     *action = Some(Action::Refresh);
                     ui.close();
                 }
@@ -657,6 +654,12 @@ impl Studio {
                         self.output = tab;
                         ui.close();
                     }
+                }
+            });
+            ui.menu_button("Tools", |ui| {
+                if ui.button("Manage Libraries…").clicked() {
+                    self.library_manager.open();
+                    ui.close();
                 }
             });
             ui.menu_button("Help", |ui| {
@@ -680,7 +683,7 @@ impl Studio {
             ui.separator();
             if ui
                 .button("Check")
-                .on_hover_text("Parse and name-check; never runs agents or records audio")
+                .on_hover_text("Validate workflow; never runs agents or records audio")
                 .clicked()
             {
                 *action = Some(Action::Check);
@@ -748,7 +751,6 @@ impl Studio {
         .on_hover_text(self.root.display().to_string());
         ui.separator();
         let mut open = None;
-        let mut jump = None;
         egui::ScrollArea::vertical()
             .id_salt("project_files")
             .max_height(ui.available_height() * 0.57)
@@ -759,20 +761,21 @@ impl Studio {
                         .path
                         .as_ref()
                         .is_some_and(|p| p == path);
-                    let label = path.file_name().unwrap_or_default().to_string_lossy();
+                    let label = path
+                        .file_stem()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .replace('_', " ")
+                        .replace('-', " ");
                     if ui
                         .selectable_label(selected, RichText::new(label).size(12.0))
-                        .on_hover_text(path.display().to_string())
                         .clicked()
                     {
                         open = Some(path.clone());
                     }
                 }
                 if self.files.is_empty() {
-                    ui.weak("No .camel scripts found");
-                }
-                if self.files.len() == 500 {
-                    ui.weak("Showing first 500 scripts");
+                    ui.weak("No project scripts found");
                 }
             });
         ui.separator();
@@ -780,32 +783,18 @@ impl Studio {
         egui::ScrollArea::vertical()
             .id_salt("outline")
             .show(ui, |ui| {
-                for d in &self.tabs[self.active].analysis {
-                    if ui
-                        .selectable_label(false, format!("{}  {}", d.kind, d.name))
-                        .on_hover_text(format!("{}:{}", d.site.file, d.site.line))
-                        .clicked()
-                    {
-                        jump = Some(d.site.clone());
-                    }
+                for declaration in &self.tabs[self.active].analysis {
+                    ui.label(format!("{}  {}", declaration.kind, declaration.name));
                 }
             });
-        if let Some(p) = open {
-            self.open(&p);
-        }
-        if let Some(s) = jump {
-            self.jump(s);
+        if let Some(path) = open {
+            self.open(&path);
         }
     }
     fn inspector(&mut self, ui: &mut egui::Ui) {
-        ui.strong("Orchestration");
-        ui.label(
-            RichText::new("Declarations, not executed configuration")
-                .size(11.0)
-                .weak(),
-        );
+        ui.strong("Workflow setup");
+        ui.label(RichText::new("Inputs and components").size(11.0).weak());
         ui.separator();
-        let mut jump = None;
         egui::ScrollArea::vertical().id_salt("inspector").show(ui,|ui| {
             let tab=&mut self.tabs[self.active];
             let names:Vec<_>=tab.analysis.iter().filter(|d|d.kind=="workflow").map(|d|d.name.clone()).collect();
@@ -814,32 +803,30 @@ impl Studio {
             egui::ComboBox::from_id_salt("workflow").width(ui.available_width()-12.0).selected_text(if selected.is_empty(){"No workflow"}else{&selected}).show_ui(ui,|ui|{for name in &names{ui.selectable_value(&mut selected,name.clone(),name);}});
             if selected!=tab.workflow{tab.select_workflow(selected);}
             for a in &mut tab.arguments {
-                ui.add_space(6.0);ui.horizontal(|ui|{ui.label(&a.name);ui.weak(&a.ty);});
-                if let Some(default)=&a.default {ui.checkbox(&mut a.use_default,"Use source default").on_hover_text(default);}
-                ui.add_enabled(!a.use_default,egui::TextEdit::singleline(&mut a.text).desired_width(f32::INFINITY).hint_text(if a.ty=="string"{"Text"}else{"Value / JSON"}));
+                ui.horizontal(|ui|{ui.label(&a.name);ui.weak(&display_type(&a.ty));});
+                ui.checkbox(&mut a.use_default,"Use default input");
+                if !a.use_default {
+                    ui.add(egui::TextEdit::singleline(&mut a.text).desired_width(f32::INFINITY).hint_text(if a.ty=="string"{"Enter text"}else{"Enter a value"}));
+                }
             }
-            if names.is_empty(){ui.weak("Fix source problems to select a workflow.");}
-            ui.add_space(10.0);ui.separator();ui.strong("LM Studio endpoint");
+            if names.is_empty(){ui.weak("No runnable workflow is available.");}
+            ui.add_space(10.0);ui.separator();ui.strong("Model service");
             ui.add(egui::TextEdit::singleline(&mut self.endpoint).desired_width(f32::INFINITY));
-            ui.label(RichText::new("Configured address; connection not tested.\nModels are selected by agent declarations.").size(11.0).weak());
+            ui.label(RichText::new("Configured address; connection not tested.\nModels are chosen for each agent.").size(11.0).weak());
             for kind in ["agent","tool","policy","record"] {
                 let declarations:Vec<_>=tab.analysis.iter().filter(|d|d.kind==kind).collect();
                 if declarations.is_empty(){continue;}
-                ui.add_space(10.0);ui.separator();ui.strong(match kind{"agent"=>"Agents","tool"=>"Tools","policy"=>"Policies",_=>"Types"});
+                ui.add_space(10.0);ui.separator();ui.strong(match kind{"agent"=>"Agents","tool"=>"Integrations","policy"=>"Safety rules",_=>"Data types"});
                 for d in declarations {
                     egui::CollapsingHeader::new(&d.name).id_salt((&d.kind,&d.name)).default_open(kind=="agent").show(ui,|ui|{
-                        if ui.small_button(format!("Source : {}",d.site.line)).clicked(){jump=Some(d.site.clone());}
                         for (key,value) in &d.details {
-                            ui.label(RichText::new(key).size(11.0).weak());ui.label(RichText::new(value).size(12.0));ui.add_space(3.0);
+                            ui.label(RichText::new(display_detail_name(key)).size(11.0).weak());ui.label(RichText::new(display_detail_value(value)).size(12.0));ui.add_space(3.0);
                         }
                     });
                 }
             }
-            ui.add_space(14.0);ui.label(RichText::new("Scripts are trusted code. Agent policies constrain model tool calls, not the entire workflow.").size(11.0).weak());
+            ui.add_space(14.0);ui.label(RichText::new("Safety rules constrain agent actions. Workflows run with the permissions of this computer.").size(11.0).weak());
         });
-        if let Some(site) = jump {
-            self.jump(site);
-        }
     }
     fn output(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
@@ -856,7 +843,6 @@ impl Studio {
             ui.weak(&self.run_name);
         });
         ui.separator();
-        let mut jump = None;
         egui::ScrollArea::both().id_salt("run_output").auto_shrink([false,false]).show(ui,|ui|{match self.output {
             OutputTab::Timeline=>{
                 if self.rows.is_empty(){ui.add_space(14.0);ui.weak("Run a workflow to inspect actual agent, model, tool, and microphone activity.");}
@@ -866,7 +852,7 @@ impl Studio {
                         for row in &self.rows {
                             let (state,color)=match row.outcome {Some((true,_))=>("Done",Color32::from_rgb(48,112,73)),Some((false,_))=>("Failed",Color32::from_rgb(160,64,46)),None if self.runner.is_none()=>("Stopped",Color32::from_rgb(112,116,124)),None=>("Running",Color32::from_rgb(46,91,147))};
                             ui.colored_label(color,state);ui.label(&row.kind);
-                            if ui.link(&row.name).on_hover_text(format!("{}:{}",row.site.file,row.site.line)).clicked(){jump=Some(row.site.clone());}
+                            ui.label(&row.name);
                             ui.label(&row.detail);let ms=row.outcome.map(|(_,ms)|ms).unwrap_or(row.started.elapsed().as_millis() as u64);ui.monospace(format!("{:.2}s",ms as f64/1000.0));ui.end_row();
                         }
                     });
@@ -876,18 +862,39 @@ impl Studio {
             OutputTab::Result=>if let Some(result)=&self.result {let mut text=result.clone();ui.add(egui::TextEdit::multiline(&mut text).font(FontId::monospace(12.0)).desired_width(f32::INFINITY).interactive(false).frame(false));if ui.button("Copy JSON").clicked(){ui.ctx().copy_text(result.clone());}}else{ui.weak("The completed workflow's return value appears here as JSON.");},
             OutputTab::Problems=>{
                 let tab=&self.tabs[self.active];
-                if tab.error.is_none()&&tab.checked==Some(tab.revision){ui.label("Current script: parsed and name-checked. Type contracts are checked at runtime.");}
-                else if tab.error.is_none(){ui.weak("Checking current source…");}
-                for (label,error) in [("Current script",tab.error.as_ref()),("Last run",self.run_error.as_ref())] {
-                    if let Some(error)=error {ui.label(RichText::new(label).strong());if ui.link(error.to_string()).clicked(){jump=Some(error.site.clone());}}
+                if !tab.diagnostics.is_empty() {
+                    ui.label(RichText::new("Current script").strong());
+                    for diagnostic in &tab.diagnostics {
+                        let site = &diagnostic.primary_span.start;
+                        ui.label(format!(
+                            "{:?} [{}]  {}:{}:{}: {}",
+                            diagnostic.severity,
+                            diagnostic.code,
+                            site.file,
+                            site.line,
+                            site.column,
+                            diagnostic.message
+                        ));
+                        if let Some(help) = &diagnostic.help {
+                            ui.weak(help);
+                        }
+                    }
+                } else if tab.checked==Some(tab.revision) {
+                    ui.label("Workflow is ready to run.");
+                } else if tab.error.is_none() {
+                    ui.weak("Preparing workflow…");
+                }
+                if self.run_error.is_some() {
+                    ui.label(RichText::new("Last run").strong());
+                    ui.label("Needs attention. Review the selected workflow and try again.");
                 }
             },
         }});
-        if let Some(site) = jump {
-            self.jump(site);
-        }
     }
     fn center(&mut self, ui: &mut egui::Ui, action: &mut Option<Action>) {
+        self.source_editor(ui, action);
+    }
+    fn source_editor(&mut self, ui: &mut egui::Ui, action: &mut Option<Action>) {
         egui::ScrollArea::horizontal()
             .id_salt("document_tabs")
             .show(ui, |ui| {
@@ -959,6 +966,7 @@ impl Studio {
         );
         tab.cursor = cursor;
         if changed {
+            tab.invalidate_analysis();
             tab.revision += 1;
             tab.changed = Instant::now();
         }
@@ -966,9 +974,9 @@ impl Studio {
     fn dialogs(&mut self, ctx: &egui::Context) {
         if self.about {
             egui::Window::new("About Camel Studio").collapsible(false).resizable(false).open(&mut self.about).show(ctx,|ui|{
-                ui.heading("Camel Studio");ui.label("0.2.0 preview • native Rust / egui");ui.separator();
-                ui.label("A script-first workspace for agent orchestration.");ui.label("Ctrl+N / O / S: new, open, save\nCtrl+Shift+S: save as\nCtrl+F: find • Ctrl+F5: check\nF5: run • Shift+F5: stop");ui.separator();
-                ui.label("Stop kills Studio's worker process. Completed file writes are not undone.\nIt does not unload models or stop LM Studio.\nFinish recording sends Enter to record(0).\nCheck never runs code. This preview is not an OS sandbox.");
+                ui.heading("Camel Studio");ui.label("0.2.0 preview • native Camel code editor");ui.separator();
+                ui.label("Edit a script, configure its inputs, and inspect workflow results.");ui.label("Ctrl+O: open script\nCtrl+F5: validate\nF5: run • Shift+F5: stop");ui.separator();
+                ui.label("Stop ends the active run. Completed file writes are not undone.\nIt does not unload models or stop LM Studio.\nFinish recording ends an open capture.\nValidate checks setup without starting a run. Workflows use this computer's permissions.");
             });
         }
         let Some(pending) = self.pending else {
@@ -1049,31 +1057,15 @@ impl Studio {
             let tab = &self.tabs[self.active];
             ui.horizontal(|ui| {
                 ui.label(
-                    RichText::new(format!("Ln {}, Col {}", tab.cursor.0, tab.cursor.1)).size(11.0),
-                );
-                ui.separator();
-                ui.label(
                     RichText::new(if tab.checked != Some(tab.revision) {
-                        "Checking…"
+                        "Preparing…"
                     } else if tab.error.is_some() {
-                        "Source error"
+                        "Needs attention"
                     } else {
-                        "Source checked"
+                        "Ready"
                     })
                     .size(11.0),
                 );
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(
-                        RichText::new(
-                            tab.doc
-                                .path
-                                .as_ref()
-                                .map(|p| p.display().to_string())
-                                .unwrap_or_else(|| "Unsaved script".into()),
-                        )
-                        .size(11.0),
-                    );
-                });
             });
         });
         egui::TopBottomPanel::bottom("runs")
@@ -1100,10 +1092,17 @@ impl Studio {
             }
         }
         self.dialogs(ctx);
+        self.library_manager.show(ctx);
         let tab = &self.tabs[self.active];
+        let workflow_title = tab
+            .doc
+            .path
+            .as_deref()
+            .and_then(Path::file_stem)
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "Workflow".into());
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
-            "{}{} — Camel Studio",
-            tab.doc.name(),
+            "{workflow_title} — Camel Studio{}",
             if tab.doc.dirty() { " *" } else { "" }
         )));
         if self.runner.is_some() || self.tabs.iter().any(|t| t.checked != Some(t.revision)) {
@@ -1163,6 +1162,54 @@ fn discover_root(initial: Option<&Path>) -> PathBuf {
         }
     }
     initial.and_then(Path::parent).unwrap_or(&cwd).into()
+}
+fn display_type(ty: &str) -> String {
+    if let Some(inner) = ty.strip_suffix("[]") {
+        return format!("List of {}", display_type(inner).to_lowercase());
+    }
+    match ty {
+        "string" | "text" => "Text".into(),
+        "int" | "integer" => "Whole number".into(),
+        "float" | "number" => "Number".into(),
+        "bool" | "boolean" => "Yes / no".into(),
+        "any" => "Any value".into(),
+        _ => "Structured value".into(),
+    }
+}
+fn display_detail_name(name: &str) -> &str {
+    match name {
+        "model" => "Model",
+        "system" => "Instructions",
+        "maxTurns" => "Turn limit",
+        "maxToolCalls" => "Tool-call limit",
+        "allowNetwork" => "Network access",
+        "allowFileRead" => "File access",
+        "allowFileWrite" => "File changes",
+        "allowShell" => "Command access",
+        "policy" => "Safety rules",
+        "response" => "Response format",
+        "returns" => "Response format",
+        _ => name,
+    }
+}
+fn display_detail_value(value: &str) -> String {
+    if value.starts_with("env(") || value.starts_with("<expression") {
+        return "Configured automatically".into();
+    }
+    if value.starts_with('[') {
+        return "Configured values".into();
+    }
+    if let Ok(text) = serde_json::from_str::<String>(value) {
+        return text;
+    }
+    match value {
+        "true" => "Enabled".into(),
+        "false" => "Disabled".into(),
+        "string" | "text" | "int" | "integer" | "float" | "number" | "bool" | "boolean" | "any" => {
+            display_type(value)
+        }
+        _ => value.into(),
+    }
 }
 fn configure(ctx: &egui::Context) {
     ctx.set_visuals(egui::Visuals::light());
@@ -1230,7 +1277,7 @@ mod tests {
             .unwrap()
             .to_path_buf();
         let mut app = Studio::empty(root.clone());
-        app.open(&root.join("Camel/examples/agent_planner.camel"));
+        app.open(&root.join("Camel/examples/programming_core.camel"));
         let p = CompiledProgram::load(app.tabs[0].doc.path.as_ref().unwrap()).unwrap();
         app.tabs[0].analysis = p.declarations();
         app.tabs[0].checked = Some(0);
@@ -1248,7 +1295,7 @@ mod tests {
             |ctx| app.draw(ctx),
         );
         assert!(!out.shapes.is_empty());
-        assert_eq!(app.tabs[0].arguments.len(), 2);
+        assert_eq!(app.tabs[0].arguments.len(), 1);
         assert!(app.runner.is_none());
     }
     #[test]

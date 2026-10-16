@@ -47,7 +47,7 @@ fn short_circuit_avoids_throwing_calls() {
 #[test]
 fn failed_record_mutation_does_not_commit() {
     number(
-        r#"record Count {int value;} workflow int Main() {Count c=new Count {value=7};try {c.value="wrong";} catch(e) {assert(e.message.contains("expected int"));} return c.value;}"#,
+        r#"record Count {int value;} workflow int Main() {Count c=new Count {value=7};any wrong="wrong";try {c.value=wrong;} catch(e) {assert(e.message.contains("expected int"));} return c.value;}"#,
         7,
     );
 }
@@ -119,11 +119,10 @@ fn caught_task_errors_are_not_rethrown_on_drain() {
 }
 #[test]
 fn task_result_types_are_checked_when_awaited() {
-    let e = run(
-        "string Text(){return \"wrong\";} workflow Main(){Task<int> task=spawn Text();await task;}",
-    )
-    .err()
-    .unwrap();
+    let e =
+        run("workflow Main(){Task<int> task=spawn json.parse(\"{\\\"value\\\":1}\");await task;}")
+            .err()
+            .unwrap();
     assert!(e.message.contains("expected int"));
 }
 #[test]
@@ -319,7 +318,7 @@ fn transport_retries_are_bounded() {
     assert_eq!(fake.requests.lock().unwrap().len(), 2);
 }
 #[test]
-fn audio_workflow_executes_capture_and_both_source_agents() {
+fn audio_inference_library_executes_capture_and_both_agents() {
     let fake = provider(vec![
         json!({"content":"Ship Friday."}),
         json!({"content":"{\"topic\":\"launch\",\"summary\":\"Ship Friday.\",\"keyPoints\":[\"Friday\"],\"actionItems\":[],\"uncertainties\":[]}"}),
@@ -335,10 +334,10 @@ fn audio_workflow_executes_capture_and_both_source_agents() {
         }),
         ..Host::default()
     };
-    let p = CompiledProgram::from_source(
-        "audio.camel",
-        include_str!("../../Camel/examples/audio_note_summarizer.camel"),
-    )
+    let p = CompiledProgram::load(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../Camel/examples/audio_note_summarizer.camel"
+    ))
     .unwrap();
     let result = Engine::new(p, host)
         .run("Main", vec![Value::String("launch".into())])
@@ -382,6 +381,22 @@ fn imports_resolve_functions_and_detect_cycles() {
         .message
         .contains("cyclic import"));
 }
+
+#[test]
+fn imports_reject_conflicting_language_versions() {
+    let dir = tempfile::tempdir().unwrap();
+    let library = dir.path().join("library.camel");
+    let entry = dir.path().join("main.camel");
+    std::fs::write(&library, "version \"0.3\"; int Twice(int n){return n*2;}").unwrap();
+    std::fs::write(
+        &entry,
+        "version \"0.2\"; using \"library.camel\"; workflow int Main(){return Twice(3);}",
+    )
+    .unwrap();
+    let error = CompiledProgram::load(entry).err().unwrap();
+    assert!(error.message.contains("language version"));
+}
+
 #[test]
 fn file_tools_write_atomically_and_reject_escape() {
     let dir = tempfile::tempdir().unwrap();

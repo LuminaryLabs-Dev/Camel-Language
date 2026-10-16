@@ -23,6 +23,8 @@ pub struct Catalog {
 pub struct Library {
     pub name: String,
     pub description: String,
+    pub version: String,
+    pub revision: String,
     pub repository: String,
     pub path: String,
     pub files: Vec<String>,
@@ -91,8 +93,8 @@ pub fn catalog(source: Option<&str>) -> Result<Catalog> {
             .text()?,
     };
     let catalog: Catalog = serde_json::from_str(&text)?;
-    if catalog.schema_version != 1 {
-        return Err("unsupported Camel catalog schemaVersion; expected 1".into());
+    if catalog.schema_version != 2 {
+        return Err("unsupported Camel catalog schemaVersion; expected 2".into());
     }
     let mut names = BTreeSet::new();
     for library in &catalog.libraries {
@@ -118,8 +120,9 @@ pub fn install(library: &Library) -> Result<PathBuf> {
     for relative in &library.files {
         let target = staging.path().join(relative);
         let url = format!(
-            "https://raw.githubusercontent.com/{}/main/{}/{}",
+            "https://raw.githubusercontent.com/{}/{}/{}/{}",
             library.repository.trim_start_matches("https://github.com/"),
+            library.revision,
             library.path,
             relative
         );
@@ -199,6 +202,8 @@ pub fn validate(library: &Library) -> Result<()> {
     if !valid_name(&library.name)
         || !valid_repository
         || !valid_relative(&library.path)
+        || !valid_version(&library.version)
+        || !valid_revision(&library.revision)
         || library.files.is_empty()
         || library.files.iter().any(|file| {
             !valid_relative(file)
@@ -206,7 +211,7 @@ pub fn validate(library: &Library) -> Result<()> {
                 || !files.insert(file.to_ascii_lowercase())
         })
     {
-        return Err(format!("invalid library '{}': expected a safe name, GitHub HTTPS repository, relative directory, and unique file allowlist", library.name).into());
+        return Err(format!("invalid library '{}': expected a safe name, semantic version, Git ref, GitHub HTTPS repository, relative directory, and unique file allowlist", library.name).into());
     }
     Ok(())
 }
@@ -237,6 +242,28 @@ fn valid_relative(value: &str) -> bool {
         })
 }
 
+fn valid_version(value: &str) -> bool {
+    let parts: Vec<_> = value.split('.').collect();
+    parts.len() == 3
+        && parts.iter().all(|part| {
+            !part.is_empty()
+                && (part == &"0" || !part.starts_with('0'))
+                && part.bytes().all(|byte| byte.is_ascii_digit())
+        })
+}
+
+fn valid_revision(value: &str) -> bool {
+    !value.is_empty()
+        && value.split('/').all(|part| {
+            !part.is_empty()
+                && part != "."
+                && part != ".."
+                && part
+                    .chars()
+                    .all(|character| character.is_ascii_alphanumeric() || "-_.".contains(character))
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -245,6 +272,8 @@ mod tests {
         Library {
             name: "standard".into(),
             description: "Helpers".into(),
+            version: "1.0.0".into(),
+            revision: "main".into(),
             repository: "https://github.com/LuminaryLabs-Dev/Camel-Language".into(),
             path: "libraries/standard".into(),
             files: vec!["core.camel".into()],
@@ -274,6 +303,20 @@ mod tests {
         assert!(validate(&item).is_err());
         item.files = vec![".camel-library.json".into()];
         assert!(validate(&item).is_err());
+    }
+
+    #[test]
+    fn library_versions_and_revisions_are_checked_before_download() {
+        let mut item = library();
+        item.version = "latest".into();
+        assert!(validate(&item).is_err());
+        item.version = "01.2.3".into();
+        assert!(validate(&item).is_err());
+        item.version = "1.2.3".into();
+        item.revision = "../../main".into();
+        assert!(validate(&item).is_err());
+        item.revision = "release/audio-v1".into();
+        assert!(validate(&item).is_ok());
     }
 
     #[test]

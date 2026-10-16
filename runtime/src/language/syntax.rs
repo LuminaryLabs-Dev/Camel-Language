@@ -6,6 +6,70 @@ pub struct Site {
     pub line: usize,
     pub column: usize,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum Severity {
+    Error,
+    Warning,
+    Information,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct SourceSpan {
+    /// Current parser/checker diagnostics use point spans at the reported site.
+    pub start: Site,
+    pub end: Site,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct RelatedInformation {
+    pub span: SourceSpan,
+    pub message: String,
+}
+
+/// Stable, editor-friendly diagnostic returned by the shared analysis API.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct Diagnostic {
+    pub severity: Severity,
+    pub code: String,
+    pub message: String,
+    pub primary_span: SourceSpan,
+    pub related: Vec<RelatedInformation>,
+    pub help: Option<String>,
+}
+
+impl Diagnostic {
+    pub fn from_error(code: impl Into<String>, error: Error) -> Self {
+        let site = error.site;
+        Self {
+            severity: Severity::Error,
+            code: code.into(),
+            message: error.message,
+            primary_span: SourceSpan {
+                start: site.clone(),
+                end: site,
+            },
+            related: Vec::new(),
+            help: None,
+        }
+    }
+
+    pub fn to_error(&self) -> Error {
+        Error::at(&self.primary_span.start, self.message.clone())
+    }
+}
+
+impl std::fmt::Display for Diagnostic {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let site = &self.primary_span.start;
+        write!(
+            f,
+            "{}:{}:{}: [{}] {}",
+            site.file, site.line, site.column, self.code, self.message
+        )
+    }
+}
+
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Error {
     pub message: String,
@@ -120,6 +184,7 @@ pub struct Tool {
 }
 #[derive(Clone, Debug, Default)]
 pub struct Program {
+    pub language_version: Option<String>,
     pub functions: BTreeMap<String, Function>,
     pub records: BTreeMap<String, BTreeMap<String, Type>>,
     pub agents: BTreeMap<String, BTreeMap<String, Expr>>,

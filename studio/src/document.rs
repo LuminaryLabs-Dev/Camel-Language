@@ -1,4 +1,5 @@
 //! One owner for an editor buffer and its last committed disk snapshot.
+use camel_audio_runtime::language::MAX_SOURCE_BYTES;
 use std::{
     fs,
     io::Write,
@@ -21,8 +22,11 @@ impl Document {
     pub fn open(path: &Path) -> Result<Self, String> {
         let path = path.canonicalize().map_err(|e| e.to_string())?;
         let bytes = fs::read(&path).map_err(|e| e.to_string())?;
-        if bytes.len() > 1_048_576 {
-            return Err("Studio supports scripts up to 1 MiB".into());
+        if bytes.len() > MAX_SOURCE_BYTES {
+            return Err(format!(
+                "Camel scripts cannot exceed {} MiB",
+                MAX_SOURCE_BYTES / (1024 * 1024)
+            ));
         }
         let text = String::from_utf8(bytes.clone())
             .map_err(|_| "Camel scripts must be UTF-8".to_owned())?;
@@ -43,8 +47,11 @@ impl Document {
             .unwrap_or_else(|| "Untitled.camel".into())
     }
     pub fn save(&mut self, target: &Path) -> Result<(), String> {
-        if self.text.len() > 1_048_576 {
-            return Err("Studio supports scripts up to 1 MiB; edits remain in memory.".into());
+        if self.text.len() > MAX_SOURCE_BYTES {
+            return Err(format!(
+                "Camel scripts cannot exceed {} MiB; edits remain in memory.",
+                MAX_SOURCE_BYTES / (1024 * 1024)
+            ));
         }
         let parent = target
             .parent()
@@ -100,7 +107,18 @@ impl Document {
 
 /// A bounded project inventory; never descends into build output or symlink directories.
 pub fn scripts(root: &Path) -> Vec<PathBuf> {
-    fn visit(root: &Path, out: &mut Vec<PathBuf>, depth: usize) {
+    // Installed project examples and the standard library are implementation
+    // payload, not the user's editable project. Keep the editor inventory scoped
+    // to user scripts while leaving explicit Open available for any file.
+    let has_distributable_sources = root.join("Camel/examples").is_dir()
+        && root.join("libraries/index.json").is_file();
+    fn visit(
+        root: &Path,
+        project_root: &Path,
+        has_distributable_sources: bool,
+        out: &mut Vec<PathBuf>,
+        depth: usize,
+    ) {
         if depth > 12 || out.len() >= 500 {
             return;
         }
@@ -121,10 +139,17 @@ pub fn scripts(root: &Path) -> Vec<PathBuf> {
             }
             let path = entry.path();
             if kind.is_dir() {
-                if ![".git", "target", "dist", "node_modules", ".codex"]
-                    .contains(&entry.file_name().to_string_lossy().as_ref())
+                let name = entry.file_name();
+                if root == project_root
+                    && has_distributable_sources
+                    && matches!(name.to_string_lossy().as_ref(), "Camel" | "libraries")
                 {
-                    visit(&path, out, depth + 1);
+                    continue;
+                }
+                if ![".git", "target", "dist", "node_modules", ".codex"]
+                    .contains(&name.to_string_lossy().as_ref())
+                {
+                    visit(&path, project_root, has_distributable_sources, out, depth + 1);
                 }
             } else if path.extension().is_some_and(|e| e == "camel") {
                 out.push(path);
@@ -132,7 +157,7 @@ pub fn scripts(root: &Path) -> Vec<PathBuf> {
         }
     }
     let mut out = Vec::new();
-    visit(root, &mut out, 0);
+    visit(root, root, has_distributable_sources, &mut out, 0);
     out
 }
 

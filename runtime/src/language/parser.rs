@@ -118,6 +118,21 @@ impl Parser {
         let mut p = Program::default();
         while self.tokens[self.i].kind != Kind::End {
             let site = self.site();
+            if self.eat("version") {
+                if p.language_version.is_some() {
+                    return Err(Error::at(&site, "duplicate language version declaration"));
+                }
+                let version = match self.tokens[self.i].kind.clone() {
+                    Kind::Text(version, false) => {
+                        self.i += 1;
+                        version
+                    }
+                    _ => return Err(Error::at(&self.site(), "version requires a quoted string")),
+                };
+                self.need(";")?;
+                p.language_version = Some(version);
+                continue;
+            }
             if self.eat("using") || self.eat("import") {
                 if let Kind::Text(path, false) = self.tokens[self.i].kind.clone() {
                     self.i += 1;

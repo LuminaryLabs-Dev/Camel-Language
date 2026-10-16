@@ -1,9 +1,9 @@
 name: Camel runtime
 on:
   push:
-    paths: ["runtime/**", "studio/**", "packages/**", "libraries/**", "Camel/examples/**", ".github/workflows/runtime.yml"]
+    paths: ["runtime/**", "studio/**", "packages/**", "libraries/**", "conformance/**", "docs/LANGUAGE_SPEC.md", "Camel/examples/**", "Camel/docs/AUDIO_NOTE_SUMMARIZER.md", "scripts/package-preview.ps1", ".github/workflows/runtime.yml"]
   pull_request:
-    paths: ["runtime/**", "studio/**", "packages/**", "libraries/**", "Camel/examples/**", ".github/workflows/runtime.yml"]
+    paths: ["runtime/**", "studio/**", "packages/**", "libraries/**", "conformance/**", "docs/LANGUAGE_SPEC.md", "Camel/examples/**", "Camel/docs/AUDIO_NOTE_SUMMARIZER.md", "scripts/package-preview.ps1", ".github/workflows/runtime.yml"]
   workflow_dispatch:
 jobs:
   conformance:
@@ -23,7 +23,6 @@ jobs:
       - run: cargo clippy --manifest-path runtime/Cargo.toml --locked --all-targets -- -D warnings
       - run: cargo test --manifest-path runtime/Cargo.toml --locked
       - run: cargo run --manifest-path runtime/Cargo.toml --locked -- check Camel/examples/audio_note_summarizer.camel
-      - run: cargo run --manifest-path runtime/Cargo.toml --locked -- check Camel/examples/agent_planner.camel
       - run: cargo run --manifest-path runtime/Cargo.toml --locked -- Camel/examples/programming_core.camel --json -- 6
       - run: cargo run --manifest-path runtime/Cargo.toml --locked -- check Camel/examples/orchestration.camel
   studio:

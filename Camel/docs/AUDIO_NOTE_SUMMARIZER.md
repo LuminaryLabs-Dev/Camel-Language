@@ -1,17 +1,19 @@
 # Audio Note Summarizer — Camel 0.2.0 preview
 
-`Camel/examples/audio_note_summarizer.camel` is a real interpreted program:
+The audio inference implementation lives in the separately versioned `libraries/audio` source package. `Camel/examples/audio_note_summarizer.camel` imports the checkout copy for local development; `Camel/examples/audio_note_summarizer_installed.camel` imports the installed package:
 
 1. `Main(topic, durationSeconds)` executes `record(durationSeconds)` to capture the default microphone into an in-memory PCM WAV.
-2. `AudioTranscriber` uses the source-selected `LiquidAI/LFM2.5-Audio-1.5B-GGUF` model and returns spoken text, which source code wraps in a typed `Transcript`.
-3. `NoteSummarizer` uses `LiquidAI/LFM2.5-1.2B-Thinking` and must return JSON matching `NoteSummary`.
-4. The workflow returns an `AudioNote` record containing both transcript and topic-focused summary.
+2. The `audio` library's `AudioTranscriber` uses its selected audio model and returns spoken text.
+3. Its `NoteSummarizer` uses its selected text model and returns JSON matching the library's `NoteSummary` record.
+4. The library returns an `AudioNote` record containing both transcript and topic-focused summary.
 
 This captures a recording and then transcribes it. It is **not continuous streaming transcription**.
 
 ## Requirements and limitation
 
 Use the new source runtime or 0.2.0 preview executable, not the recovered alpha binary. A default microphone must be available and operating-system recording permission enabled.
+
+The runtime provides generic audio input values and capture. Transcription and summarization prompts, agents, model defaults, and response records belong to the independently versioned `audio` library. Its catalog version and Git revision can advance without a runtime release. Install or update it with `camel library install audio` and `camel library update audio`, then check the installed-import example. The repository-local example imports the library source directly. This repository is private, so remote install requires an accessible catalog and source repository; local checkout imports remain available.
 
 The configured local server must expose the requested model IDs and accept an OpenAI-compatible `input_audio` content part for the audio model. Camel emits that payload, but **live LM Studio/Liquid audio inference has not been verified**. Installing a model does not prove the server can serve its audio input. If the server rejects `input_audio`, an audio-capable provider adapter is still needed; Camel cannot make a text/image-only server accept audio.
 
@@ -29,6 +31,18 @@ $env:RUSTFLAGS = "-C linker=lld-link"
 
 cargo test --manifest-path .\runtime\Cargo.toml --locked
 cargo run --manifest-path .\runtime\Cargo.toml -- check .\Camel\examples\audio_note_summarizer.camel
+```
+
+For the independently installed package:
+
+```powershell
+cargo run --manifest-path .\runtime\Cargo.toml -- library install audio --catalog .\libraries\index.json
+cargo run --manifest-path .\runtime\Cargo.toml -- check .\Camel\examples\audio_note_summarizer_installed.camel
+```
+
+Run the local-source version:
+
+```powershell
 
 # Source parameters: topic, then duration in seconds.
 cargo run --manifest-path .\runtime\Cargo.toml -- .\Camel\examples\audio_note_summarizer.camel --json -- "Luminary Initiatives" 30

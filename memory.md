@@ -1,13 +1,48 @@
 # Camel Project Memory
 
-## High-level next-step planning — 2026-10-12
+## Camel overview article — 2026-10-13
 
-- User asks for a high-level sequence to organize Camel's next steps; this is planning only.
-- Current project has a working Rust language/runtime, Camel Studio, library manager, and native cross-platform installer/distributions. Latest memory records successful Windows/macOS/Linux distribution CI and archive verification; visible native GUI QA was Windows-only.
-- The canonical worktree still has pending installer, packaging, package-manager, and README changes. Treat release closure and a clean, reproducible cross-platform preview as the immediate milestone before expanding the language.
-- Suggested sequence: (1) reconcile and finish current preview changes/CI; (2) complete manual native install/launch checks and address release signing/notarization decisions; (3) pick one primary user workflow and harden its end-to-end experience; (4) only then prioritize language milestones from docs/LANGUAGE_SPEC.md; (5) prepare contributor/community materials and revisit public visibility only with explicit authorization.
-- Highest-value product validation gap: actual LM Studio/Liquid audio inference remains unverified. Keep the audio demo experimental unless that provider path is proven; use the offline programming example as the dependable quickstart meanwhile.
-- No extra plugin is needed for this repository-grounded roadmap; next-it and plan-it cover the planning work.
+- User requested an article explaining what Camel is, how to use it, and why its Rust implementation is valuable.
+- Rewrote `Camel/docs/camel-article.md` for the current 0.2 preview, using the live language specification, CLI help/source, runtime guide, and installer guide as sources of truth. The previous draft described the obsolete 0.1 feature set.
+- Follow-up intent: expand the article into Camel's origin story: repeated Python harness work motivated a language to make local-AI authoring and orchestration approachable to programmers and non-programmers. Explicitly explain why Camel is a language rather than a Rust extension, and cross-reference accessible Camel chats/environments for the experimental history.
+- The article now distinguishes the standalone `.camel` grammar, edition, imports, static checks, interpreter, and conformance contract from Rust host extensions; Rust builds the runtime, while Camel source is interpreted. It tells the harness-fatigue origin and makes the non-programmer goal concrete without presenting Camel as no-code.
+- Cross-referenced the other Camel Codex tasks, including `Outline Camel next steps` and `Add library support and manager`. The first-time-user direction was a typed, read-only Issue Triage agent that grows feature-by-feature; Studio's Release Readiness Desk was proposed as a showcase, not implemented. Repository evidence also identifies actual programming-core, parallel-review, tool/policy, audio-note, module/library, editor, CLI, and conformance experiments.
+- Distinguish completed local/fake-provider checks from live model runs: the ordinary programming example has known offline output; the multi-agent tool loop has deterministic stub coverage; an early microphone smoke capture succeeded, but live LM Studio/Liquid audio inference remains unverified. The legacy `agent_planner.camel` artifact uses unsupported `as`/`Console.Log` syntax and is historical, not a current working example.
+- Key technical distinction: Rust is used to build Camel's native CLI/compiler/runtime; Camel source is checked, represented internally, and interpreted. The current preview does not generate Rust or native machine code per `.camel` program.
+- The article covers installation/CLI usage, LM Studio configuration, workflows and agents, typed records, static checks, tools/policies, Rust implementation benefits, conformance fixtures, and preview limitations. No extra plugin was needed for this local documentation task. No tests were requested or run.
+- User clarified to use raw assets and live app screenshots rather than generated mockups. Removed the three generated images, embedded the unmodified `docs/images/camel-logo.png` and existing raw Studio screenshot `docs/images/camel-studio.png`, and corrected the article. Attempted to launch the existing `studio/target/release/camel-studio.exe` through Windows Computer Use, but app-launch approval timed out and Studio did not open; no new live screenshot was captured.
+
+## Camel Studio CLI launch — 2026-10-13
+
+- User requested that `camel --gui` launch the existing Camel Studio application.
+- CLI launch discovery checks `CAMEL_STUDIO_PATH`, a sibling `camel-studio` executable, repository Studio debug/release builds, then `PATH`; optional `.camel` paths pass through to Studio.
+- Documented the CLI option and executable resolution in runtime and Studio guides. No additional plugin helps this local Rust CLI integration; `atomize-it` applies to the small launcher boundary.
+
+## Camel Studio editor and library manager — 2026-10-13
+
+- User clarified that the distributable source samples should not be the default visible content in Studio. A later correction confirmed Studio remains a Camel code editor; do not replace the editor with a source-free workflow dashboard.
+- Restored the source editor and editing toolbar. Fresh launch creates the starter document instead of opening the packaged orchestration example. The project inventory excludes the packaged Camel examples and standard library when run from a full distribution, while explicitly opening a selected file remains supported.
+- Updated the Studio guide for editor-first launch and distribution-source filtering. Applied `camel-agent-programming` and `atomize-it`; no additional plugin helps this local egui feature.
+- Follow-up screenshot still showed the old interface because the CLI's development lookup searched the stale debug Studio build before the freshly built release Studio. Launcher resolution now prefers the Studio profile matching the Camel executable, and release artifacts were rebuilt so `camel --gui` selects the updated view.
+- Earlier iterations temporarily hid source editing and exposed sample names in the project browser. The user clarified the intended distinction: keep the code editor, but do not make distributable implementation/sample sources its default content.
+- Added an Arduino-style built-in Library Manager at Tools → Manage Libraries: searchable catalog, version/install state, async refresh/install/update/remove, and the existing shared library-manager backend. Studio cargo check/release build are the validation surfaces; do not claim visual/manual QA unless performed.
+
+## Earlier high-level roadmap — 2026-10-12 (superseded)
+
+- The earlier roadmap proposed closing out release/distribution verification, doing native launch checks, hardening one user workflow, then extending the language and preparing community materials.
+- The user clarified that most installer/distribution work had already been verified and redirected the active implementation to independently versioned audio inference, static typing, and language conformance/versioning. These newer decisions supersede the former ordering.
+- Historical plugin assessment: no extra plugin was needed; `next-it` and `plan-it` were considered for roadmap planning.
+
+## Static typing, conformance, and audio-library direction — 2026-10-12
+
+- User clarified that installer/distribution work is already verified, audio inference should move out of the core source examples into an independently updateable library, and the next implementation focus is static typing plus conformance/versioning.
+- Applied `atomize-it`. Added a Camel `version "0.2";` declaration, edition mismatch rejection across imports, a static expression checker for typed bindings/assignments/returns, known function/tool arguments, boolean conditions, array/index and arithmetic operations, and `any` as a gradual boundary. `camel check` now reports the checked edition and type-check status.
+- Added the `conformance/0.2` manifest and pass/fail fixtures for typed programs, `any`, assignments, returns, conditions, call arguments, and unsupported language versions. Preview packaging now includes conformance fixtures.
+- Moved audio transcript/summary records, agents, policy, and orchestration into `libraries/audio/note_summarizer.camel`; the examples import that library. Kept generic `Audio`, microphone capture, and audio file input as runtime host I/O. Added an installed-import example.
+- Upgraded the library catalog to schema 2 with semantic `version` and `revision` fields. The manager validates both, downloads the selected Git revision, lists versions, and fetches the latest remote catalog for default `update`. The first-party catalog currently points to mutable `main` for development; release entries should pin tags or commits.
+- The GitHub repository remains private. Source-library imports work from the checkout; remote installation/update of this first-party library requires an accessible GitHub catalog/source repository and has not been tested against the private repo.
+- Full runtime `cargo test --locked` passes (all current targets, including conformance); library-manager tests and strict Clippy pass. Runtime strict Clippy passes. CLI check of legacy `Camel/examples/agent_planner.camel` was previously failing on unsupported `as`/`Console.Log` syntax, so that historical file remains untouched and was removed from active CI/check coverage.
+- The GitHub connector was used on the prior planning turn to inspect PR/CI state. No extra plugin was needed for this code work.
 
 ## Distribution installer intent — 2026-10-12
 
@@ -208,3 +243,117 @@ The user approved implementing the general-purpose agent language foundation. Ex
 - No project-specific CONTRIBUTING.md, CODE_OF_CONDUCT.md or SECURITY.md found outside historical distributions/build caches. Recommend adding contributor setup/testing guidance, behavior/security policies, and focused issue templates; GitHub organization defaults may exist but were not inspected.
 - Official reference: https://docs.github.com/en/communities/setting-up-your-project-for-healthy-contributions/creating-a-default-community-health-file . Keep LM Studio/Liquid audio support explicitly unverified; do not advertise production readiness, full static type checking, or OS sandboxing.
 - No source implementation or public GitHub state changed; memory only records user intent and evidence-backed recommendations.
+
+## Camel Studio capability-showcase proposal — 2026-10-13
+
+- User asked what to build in Studio to test its capabilities. Recommended a Release Readiness Desk showcase as a proposal, not implementation authorization.
+- Suggested deterministic offline core: typed release/evidence records, reusable library import, bounded tool policy, validation, workflow inputs, and structured output; optional parallel bounded agent reviewers exercise model-backed execution; audio-library flow remains optional until its inference backend is verified.
+- Proposed validating the editor, project browser, Library Manager install/update/remove, diagnostics, run timeline, console, result JSON, and stop/error states in one small project. No external plugin is needed for this local showcase.
+- Follow-up user direction: frame onboarding as a first-time Camel user learning with assistant guidance and measuring language complexity. Recommend beginning with a read-only, typed Issue Triage agent, then adding a bounded tool, parallel reviewers, library imports, and larger inputs/retry cases one at a time. Provide exact setup/run steps and a starter program when guiding this path; leave audio inference as optional until backend support is verified.
+
+## PATH launch verification — 2026-10-13
+
+- User clarified the contract: `camel --gui` should work by command name from any current directory, like `camel --version`.
+- Reproduced failure from `%TEMP%`: PowerShell resolved `C:/Users/simon/AppData/Local/Programs/Camel/bin/camel.exe`, whose October 12 build parsed `--gui` as a workflow path even though `camel-studio.exe` was a sibling.
+- Rebuilt CLI and Studio release binaries, updated the two PATH-installed per-user executables, and retained `.previous` backups. From `%TEMP%`, PowerShell resolves the installed CLI, `camel --version` reports 0.2.0-preview, and `camel --gui` exits successfully after launching sibling Studio. `git diff --check` passes; no launcher source change was needed because the repository CLI already implements `--gui` sibling resolution.
+
+## Camel 0.3 preview planning — 2026-10-14
+
+- User requests a concrete checklist to update Camel to a 0.3 preview, including a linter, Studio error management, basic language IntelliSense, and Tab autocomplete; also asks for ideal future features for an agentic programming orchestration language.
+- Applied camel-agent-programming and plan-it guidance; atomize-it informs the proposed ownership boundaries. No additional plugin is needed: runtime, compiler front end, and Studio are local Rust code, and this is planning rather than external app work.
+- Current Studio already debounces buffer checks on a worker thread, rejects stale results by revision, blocks running stale/invalid buffers, has a Problems pane, and shows one source-located Error at a time. Its Problems pane currently hides the actual error text behind generic advice.
+- Runtime diagnostics currently use Error { message, site(file/line/column), fatal } and CompiledProgram::from_source_at returns Result, so analysis stops at the first failure. The AST metadata path exposes declarations and parameters but not a reusable scope-aware completion API. The editor uses a custom egui TextEdit with syntax coloring, not a language server.
+- Proposed 0.3 foundation: one reusable analysis API that returns declarations plus structured multi-diagnostic results (severity, stable code, primary span, related locations, and help); improve source ranges for precise editor rendering and retain one compiler/checker as authority for CLI and Studio.
+- Proposed Studio work: show concrete diagnostics with severity, source navigation and inline/gutter markers; distinguish parse/type/lint/run failures and recovery guidance; maintain revision-stale rejection. Add basic completion from lexer/parser/checker metadata for keywords, builtins, locals, types, functions, agents, tools, policies and imported declarations; Tab accepts a selected completion, otherwise keeps predictable indentation behavior.
+- Start linting with correctness-oriented warnings such as unused declarations/imports and suspicious constructs; keep style rules and formatting decisions explicit rather than silently imposing them. Release checklist should include CLI/studio parity, imports and unsaved buffers, incomplete edits, Unicode/source positions, keyboard behavior, package integrity, migration/release notes, and only claim checks actually run.
+- Long-term product priorities: explicit human approval for consequential tool effects, cancellable/deadline-bound and resumable workflows, deterministic replay/evaluation with recorded model/tool boundaries, visible execution and resource budgets, and typed evidence/provenance across agent handoffs. Preserve the general-purpose programming core and make agent orchestration a first-class capability.
+
+## Shared analysis API direction — 2026-10-14
+
+- Follow-up intent: begin Camel 0.3 by unifying CLI and Studio analysis; user asks for the best implementation approach, not yet an explicit request to edit code.
+- Current split: CLI check calls CompiledProgram::load, then prints a success line; Studio's debounced buffer check independently calls CompiledProgram::from_source_at and maps success to declarations. Both ultimately invoke the same loader/checker today, but they expose different result shapes and Studio has a separate 1 MiB guard. Studio run preflight loads from disk after the entry file is saved.
+- Recommendation: add one runtime-owned analysis entry point for a file plus an optional unsaved entry-buffer override. It should own import resolution, parser/checker invocation, limits, and declaration metadata. Keep it side-effect free: no workflow evaluation, provider requests, host tools, or CLI/GUI presentation.
+- Return a shared result containing an optional checked/compiled program, declarations available for editor metadata, and diagnostics (initially a zero-or-one list wrapping existing Error is sufficient). Preserve CompiledProgram::load/from_source_at as thin compatibility wrappers initially; route CLI check and Studio debounced checks through the shared analysis result first.
+- Keep CLI responsible for exit status and concise terminal formatting; keep Studio responsible for inline/Problems rendering, revision-staleness rejection, and Run gating. Later evolve diagnostic accumulation and source spans behind this API without adding a second parser or checker.
+- Recommended parity evidence before release: same file produces equivalent CLI/Studio diagnostics; unsaved entry buffers overlay only the entry module while imports resolve consistently; limits and error locations match; checks never execute workflows, tools, model calls, or audio capture. No implementation or tests were run in this planning turn; no plugin is needed for this local Rust change.
+
+## Shared analysis implementation — 2026-10-14
+
+- User authorized implementation and clarified: keep first-error diagnostics for now, expand multi-error collection later; use the existing 8 MiB language source limit for Studio too.
+- Added runtime-owned analyze_file/analyze_buffer APIs and AnalysisResult with the optional compiled program, declaration metadata, diagnostics, validity check, and a compatibility conversion back to Result<CompiledProgram>.
+- Consolidated saved-file and unsaved-buffer import resolution, parse, and check into one CompiledProgram::compile_path path. Existing CompiledProgram::load and from_source_at remain wrappers.
+- Routed CLI execution/check through analyze_file and Studio's debounced buffer analysis through analyze_buffer; Studio still owns revision freshness, presentation, and run gating.
+- Published MAX_SOURCE_BYTES in the runtime lexer/API and reused it for Studio document open/save limits, removing the prior 1 MiB mismatch. Parser still reports its existing 8 MiB source error.
+- No tests, builds, or formatters were run because the user asked for implementation and the active instruction says not to test unless requested. Source was inspected after edits; no plugin was needed. Skills applied: camel-agent-programming and atomize-it.
+
+## Shared analysis milestone remaining work — 2026-10-14
+
+- User asks what remains under the first milestone, “Unify CLI and Studio analysis.” Current inspection confirms CLI (check and run) now uses analyze_file, Studio buffer analysis uses analyze_buffer, both return AnalysisResult, and saved/buffer paths share CompiledProgram::compile_path and the same 8 MiB language limit.
+- One lower-level entry point remains direct: CompiledProgram::from_source still calls parser::parse and check::check itself. It is not the CLI or Studio path, but can be brought under the same result contract with analyze_source or kept as a documented no-import convenience.
+- Before calling the milestone complete, build and run the focused runtime and Studio checks, then compare a shared set of valid, invalid, and imported-file diagnostics from CLI and Studio paths. No checks have been run yet, per the current instruction not to test unless requested.
+- First-error diagnostics and rendering differences are deliberate boundaries: the user chose one error first; CLI and Studio should share analysis data while keeping their own presentation. No additional plugin is needed.
+
+## Analyze in-memory source API — 2026-10-14
+
+- User requested adding analyze_source for consistency with analyze_file and analyze_buffer.
+- Added public analyze_source(name, source) returning AnalysisResult; CompiledProgram::from_source now delegates to it and remains a compatibility wrapper. It preserves the existing no-import behavior and uses the same diagnostics/program result contract.
+- No builds or tests were run; user requested this source change and verification was not requested.
+
+## Verification guidance for shared analysis — 2026-10-14
+
+- User asks how to verify analyze_source and unified CLI/Studio analysis.
+- Key distinction: analyze_source is a runtime API, not directly exercised by the CLI or Studio UI; a focused Rust API test should assert valid and invalid result fields. CLI check exercises analyze_file; Studio Ctrl+F5 exercises analyze_buffer.
+- Recommended repo commands: cargo test --manifest-path .\runtime\Cargo.toml --locked; cargo test --manifest-path .\studio\Cargo.toml --locked; CLI check the known-valid Camel/examples/programming_core.camel and conformance/0.2/fail/assignment.camel; open the same fixtures in Studio and Ctrl+F5.
+- Current Studio Problems pane presents generic failure guidance rather than the diagnostic message, so UI pass/fail state can be compared, but exact message parity is not currently visible. No tests or builds were run in this advice-only turn.
+
+## Shared analysis checks run — 2026-10-14
+
+- User explicitly requested running checks. Added runtime integration coverage for analyze_source valid and invalid results.
+- `cargo test --manifest-path .\runtime\Cargo.toml --locked` passes all 53 runtime tests after rerunning with normal filesystem access; the initial sandbox run hit Windows Access denied on temp paths.
+- Focused `analyze_source_returns_program_metadata_and_first_diagnostic` passes. CLI valid check on Camel/examples/programming_core.camel succeeds; invalid conformance/0.2/fail/assignment.camel exits 1 with the expected source-located type mismatch.
+- `cargo test --manifest-path .\studio\Cargo.toml --locked` compiles Studio and passes 6/7 tests. Existing `app::tests::ui_lays_out_a_real_checked_program` fails because it loads legacy `Camel/examples/agent_planner.camel`, which has unsupported syntax at line 64 (`expected ')'`). Do not rewrite that example without authorization; prior memory already records it as a stale user-owned example.
+- Runtime rustfmt check passes. Studio rustfmt check fails on existing formatting in studio/src/document.rs and studio/src/library_manager.rs; reported hunks are outside the current edits. No source modifications were made in response to those unrelated diagnostics.
+- A native Studio GUI Ctrl+F5 session was not manually exercised. All filesystem-dependent commands needed elevated access because default sandbox denied Windows path canonicalization/temp directory access.
+
+## Studio check failure fixed — 2026-10-14
+
+- User asked to fix the remaining Studio failure after the explicit check run. The failing layout test depended on the stale `Camel/examples/agent_planner.camel`, which no longer parses under the current language version.
+- Updated `studio/src/app.rs` test fixture to use `Camel/examples/programming_core.camel`, an already verified valid checked program, and updated the expected argument count from two to one. This keeps the UI layout assertion while removing the stale fixture dependency; the legacy example was left untouched.
+- Ran `cargo test --manifest-path .\\studio\\Cargo.toml --locked` with normal Windows filesystem access. All 7 Studio unit tests and all 3 worker integration tests passed; doc tests passed (0 tests).
+- Skills used: `atomize-it`, `stack-verify-it`, and `camel-agent-programming`. No plugin was needed.
+
+## Logo sizing — 2026-10-15
+
+- User requested the supplied Camel workflow logo centered in a 512x512 square. Saved docs/images/camel-logo-512.png; original transparent artwork was proportionally scaled to fit and centered without cropping.
+
+
+## Camel Studio local-model management feasibility — 2026-10-16
+
+- User asked whether Camel Studio can absorb a focused subset of LM Studio: Hugging Face model installation, load/use management, temperature, context size, and parallel processing; no broader feature set requested.
+- Repository inspection found Studio currently configures a model-server endpoint and displays agent declarations; the current README explicitly says Studio has no model management UI.
+- The runtime provider sends chat-completion requests to an external server. Agent temperature is already supported in Camel declarations and passed on requests. Camel's `spawn`/`await` supports parallel workflow tasks, but there is no Studio concurrency control or backend parallelism setting identified.
+- An older `Camel/docs/LM_STUDIO.md` describes model download/load/unload APIs and CLI examples, but those operations were not found in current runtime source; treat that documentation as stale until reconciled.
+- Feasible focused design: put a local inference backend behind a provider/model-manager boundary; add a model catalog/download flow for supported Hugging Face artifacts, load/unload/status controls, Studio temperature/context settings, and an explicit bounded parallel-request setting. Validate model format, hardware memory, licensing, and backend support as part of install/load feedback.
+- No code was changed. No tests were run. No additional plugin is needed for this local feasibility assessment.
+- Follow-up: Ollama is a valid candidate backend for Camel Studio. Its local API supports chat, model listing/pull/delete, explicit model load/unload via generate/keep_alive, request temperature and num_ctx, and server concurrency controls. Caveat for direct Hugging Face integration: Ollama's /api/pull targets its own model library; HF GGUF/safetensors artifacts need a separate supported import path. Official docs checked 2026-10-16: docs.ollama.com FAQ and ollama/ollama API docs.
+- Import-path design follow-up: a focused first version should query Hugging Face Hub metadata, select a compatible chat model repository/revision with GGUF files, download the chosen quantized artifact(s) with resumable progress, compute SHA-256, push blobs to Ollama, then create and verify a named local Ollama model. Ollama's own `/api/pull` only pulls its library; `/api/create` supports GGUF or safetensors files via `/api/blobs/:digest`. Keep direct safetensors import as a later scope because compatibility across repositories is less uniform. Official docs checked 2026-10-16: Hugging Face Hub API/download docs and Ollama API docs.
+
+## Structured multi-error diagnostics — 2026-10-16
+
+- User authorized the next analysis phase and clarified: collect independent semantic/type errors first; syntax parsing remains fail-fast.
+- Added public `Diagnostic`, `Severity`, `SourceSpan`, and `RelatedInformation` records, with stable analysis/check/type phase codes, message, primary location, related entries, and optional help. Existing `Error` APIs remain usable; `AnalysisResult::into_program` and compiled-program wrappers convert the first record back to `Error`.
+- Shared analysis now gathers multiple independent check/type diagnostics in source order across declarations and top-level statements within workflows. A declaration-level semantic check still stops at its first error to reduce cascades; syntax and import loading remain first-error paths.
+- CLI prints all diagnostics; Studio Problems lists severity, code, source location, and message. Studio clears stale diagnostics when source changes or validation restarts. Runtime README documents the API and limits.
+- Current primary spans are point locations (`start == end`) because AST nodes do not retain token end offsets. Codes identify check/type phases rather than individual rules; nested statements and syntax recovery are follow-up work.
+- Added API tests for record structure, multiple type errors in one workflow and across declarations, source ordering, syntax fail-fast behavior, and first-error compatibility; added CLI coverage for printing each diagnostic.
+- Verification: full runtime suite passed (including 4 CLI tests and 6 Studio API tests); full Studio suite passed (7 unit and 3 worker tests); runtime rustfmt check passed. The first full runtime retry hit an intermittent rustc `STATUS_ACCESS_VIOLATION`; the isolated CLI target and subsequent full suite both passed.
+- Skills applied: `camel-agent-programming`, `atomize-it`, and `stack-verify-it`. No plugin was needed.
+
+## Camel Discord structure — 2026-10-16
+
+- User asked for help structuring a Discord server for Camel; no server was created or modified.
+- Recommended a lean community for newcomers, Camel language learning, agent workflow discussion, Studio/runtime, and contributor proposals; keep bug tracking tied to GitHub and use forum channels for durable threads.
+- Project context: Camel is a general-purpose agent programming language with a 0.2 preview, interpreter/runtime, native Studio, agent/tool workflows, and source libraries. Audio inference remains unverified.
+- Current Discord references: Community Onboarding assigns channels/roles by answers and has a 7-default-channel / 5-public-send-channel enablement requirement; Forum Channels require Community enabled and fit longer topic discussions.
+- Plugin search for Discord community management returned no relevant Discord connector; an integration is unnecessary for planning only.
+

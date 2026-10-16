@@ -36,7 +36,7 @@ $files = [Collections.Generic.List[object]]::new()
 foreach ($relative in @('README.md', 'LICENSE', '.gitignore', 'runtime/Cargo.toml', 'runtime/Cargo.lock', 'runtime/README.md', 'packages/README.md', 'packages/camel-library-manager/Cargo.toml', 'packages/camel-library-manager/Cargo.lock', 'packages/camel-library-manager/README.md', 'packages/camel-library-manager/LICENSE', 'installer/Cargo.toml', 'installer/Cargo.lock', 'installer/README.md', '.github/workflows/distribution.yml', 'scripts/package-preview.ps1', 'scripts/install.sh')) {
     $files.Add(@{ Source = Join-Path $repositoryRoot $relative; Entry = $relative })
 }
-foreach ($relativeDirectory in @('runtime/src', 'runtime/tests', 'packages/camel-library-manager/src', 'installer/src', 'libraries', 'docs', 'Camel/examples')) {
+foreach ($relativeDirectory in @('runtime/src', 'runtime/tests', 'packages/camel-library-manager/src', 'installer/src', 'libraries', 'docs', 'conformance', 'Camel/examples')) {
     foreach ($file in Get-ChildItem -LiteralPath (Join-Path $repositoryRoot $relativeDirectory) -File -Recurse) {
         $entry = [IO.Path]::GetRelativePath($repositoryRoot, $file.FullName).Replace('\', '/')
         $files.Add(@{ Source = $file.FullName; Entry = $entry })

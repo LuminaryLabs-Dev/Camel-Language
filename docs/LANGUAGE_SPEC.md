@@ -6,7 +6,9 @@ Status: implemented interpreter baseline, not a stable 1.0 contract. This docume
 
 Camel combines ordinary programming with first-class agents and host tools. An ordinary program must execute without a model server. Models supply nondeterministic results across explicit, typed boundaries; they do not replace source-level control flow.
 
-The pipeline is source/import loading → lexer → source-located AST parser → declaration/name checks → general interpreter. `check` ends before interpretation and executes no source expressions.
+The pipeline is source/import loading → lexer → source-located AST parser → declaration/name checks → static expression checks → general interpreter. `check` ends before interpretation and executes no source expressions.
+
+Programs may declare `version "0.2";`. Omitted versions use the current preview edition (`0.2`); explicit unsupported versions fail during checking. Imported modules that declare a version must agree with the entry program. The accepted fixtures under `conformance/0.2/` define this edition's supported syntax and static-check behavior.
 
 ## Core syntax
 
@@ -38,7 +40,8 @@ workflow int Main(int seed = 2) {
 Compact grammar (expression precedence is specified below):
 
 ```text
-program      := declaration*
+program      := (version-declaration | declaration)*
+version-declaration := 'version' STRING ';'
 declaration  := ('using' | 'import') STRING ';'
              | 'record' NAME '{' (type NAME ';')* '}'
              | ('agent' | 'policy') NAME configuration
@@ -78,9 +81,9 @@ Record contracts are structural and exact: every declared field must exist, no u
 
 Type enforcement occurs when binding typed variables/parameters, assigning typed roots, returning from functions/tools and receiving declared model responses. A double contract accepts integers. Null is accepted by `any`, not by other value types. `Task<T>` checks the awaited result; this is not static proof of task result types.
 
-`var` infers primitive types and `any[]` for arrays; other values currently remain `any`. It does not infer record schemas or function signatures. Use explicit record types where mutation must retain a field contract. Annotating an object does not make an unrelated untyped alias nominally typed.
+`check` infers expression types for literals, local bindings, records, arrays, operators, function/tool calls, and agent results. It checks known assignments, returns, call arguments, `foreach` items, and boolean conditions. `var` keeps the inferred type when known; ambiguous arrays and dynamic host/model values remain `any`. `any` is an explicit gradual-typing boundary and is accepted where a concrete type is expected; runtime checks still enforce typed bindings, calls, assignments, and returns. Record schemas are nominal in static analysis and structural/exact at runtime.
 
-`check` validates syntax, names, duplicate declarations, declared type names, configuration keys, parameter/default ordering, named-call arity, explicit constructor field sets and placement of loop controls/returns. It does **not** fully type-check expressions, infer generic types, validate registered host handlers or prove that every non-void branch returns.
+`check` validates syntax, names, duplicate declarations, declared type names, configuration keys, parameter/default ordering, named-call arity, explicit constructor field sets, placement of loop controls/returns, and the static checks above. It does not prove that every non-void control-flow path returns, type-check dynamic values behind `any`, or validate registered host handlers.
 
 Blocks create lexical scopes. Inner bindings may shadow outer ones. Functions do not implicitly capture caller locals. Parameters and returns pass values, not mutable references. Named functions, agents and tools can be stored or passed as values. Defaults may refer to globals, not preceding parameters or caller locals. There are no global mutable variables or anonymous closures yet.
 
@@ -88,7 +91,7 @@ An assignment copies the declared root, applies the update, validates it, and th
 
 ## Modules and entry points
 
-`using "relative/path.camel";` (alias `import`) resolves from the importing file. `using "@camel/<name>/<file>.camel";` resolves installed library source when no local file matches. Library resolution is offline and rejects traversal outside the installed package. An imported file is loaded once; cycles and duplicate global names fail. Imports flatten declarations into one program without namespaces. Local relative imports may traverse parent directories; they are trusted source loading, not a filesystem sandbox. The `camel library` commands manage GitHub source snapshots through the shared [camel-library-manager package](../packages/camel-library-manager/README.md).
+`using "relative/path.camel";` (alias `import`) resolves from the importing file. `using "@camel/<name>/<file>.camel";` resolves installed library source when no local file matches. Library resolution is offline and rejects traversal outside the installed package. Catalog entries carry a semantic library version and Git revision; `camel library update` reads the latest catalog by default when GitHub access is available, so source libraries can advance without a runtime release. An imported file is loaded once; cycles and duplicate global names fail. Imports flatten declarations into one program without namespaces. Local relative imports may traverse parent directories; they are trusted source loading, not a filesystem sandbox. The `camel library` commands manage GitHub source snapshots through the shared [camel-library-manager package](../packages/camel-library-manager/README.md).
 
 The default entry is workflow `Main`. `--workflow Other` selects another declared workflow. A workflow without a return annotation is void. Non-void workflows return their declared value. Ordinary functions cannot be selected as CLI workflows.
 
@@ -105,6 +108,8 @@ Tasks do not share mutable local variables with parents. They share host service
 Defaults: 100,000 expression/statement/provider-step ticks, call depth 128, and 64 total spawned tasks. Source size is limited to 8 MiB per file and 100,000 tokens per file; parser/expression/type/import nesting is bounded. Runtime record/value validation is limited to depth 64; model JSON schemas to depth 16. These are safety bounds, not wall-clock or memory guarantees. Blocking host operations follow their own timeout/stop contracts.
 
 ## Agent declarations and results
+
+Audio transcription and note summarization agents are supplied by the separately versioned [`audio` source library](../libraries/audio/note_summarizer.camel). The interpreter retains generic host support for audio input (`Audio`, `record`, and `audio.load`); model choices, prompts, response records, and orchestration live in the library and can be updated through the catalog.
 
 ```camel
 record Answer { string text; }

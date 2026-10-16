@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "languageVersion": "0.2",
+  "cases": [
+    { "source": "pass/typed-program.camel", "expect": "pass" },
+    { "source": "pass/gradual-boundary.camel", "expect": "pass" },
+    { "source": "fail/assignment.camel", "expect": "fail" },
+    { "source": "fail/return.camel", "expect": "fail" },
+    { "source": "fail/condition.camel", "expect": "fail" },
+    { "source": "fail/call-argument.camel", "expect": "fail" },
+    { "source": "fail/default-value.camel", "expect": "fail" },
+    { "source": "fail/version.camel", "expect": "fail" }
+  ]
+}

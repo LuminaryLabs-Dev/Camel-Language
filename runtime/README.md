@@ -1,6 +1,6 @@
 # Camel source runtime — 0.2.0 preview
 
-This crate now parses and executes Camel source. Agent names, models, prompts, workflow arguments, control flow, records and tool calls come from the program; there is no hard-coded audio workflow in the CLI.
+This crate parses and executes the versioned Camel 0.2 language with initial static expression checks. Agent names, models, prompts, workflow arguments, control flow, records and tool calls come from the program. The audio inference example's agents and prompts are in the separately versioned `libraries/audio` source package; the runtime retains generic audio host input support.
 
 The package/library name `camel-audio-runtime` / `camel_audio_runtime` remains for compatibility. `camel` is the default executable; `camel-audio-runtime` is an alias using the same implementation. Existing Rust audio helper APIs remain available, including their legacy lenient summarization helper; Camel's `response = Record` path is strict.
 
@@ -27,12 +27,17 @@ On Linux, install `libasound2-dev` and `pkg-config` before building CPAL. Linux 
 camel check file.camel
 camel [run] file.camel [--workflow Main] [--json] [--trace] [--steps N] -- [arguments]
 camel record file.camel [--seconds N|--until-enter] [--save-recording path] -- [arguments]
+camel --gui [file.camel]
 camel library [list|search <query>|install <name>|update <name>|remove <name>]
 ```
 
-The public library catalog is `libraries/index.json` in this GitHub repository. The CLI reads this checkout's catalog for development and uses the GitHub raw catalog after packaging. Use `camel library list` or `camel library search <query>` to discover packages, `install`/`update` to download a source snapshot, and `remove` to uninstall it. Set `CAMEL_HOME` to choose the installation root; otherwise libraries live under the user's local application data directory on Windows or `~/.camel` on Unix. Programs can import installed libraries with `using "@camel/standard/core.camel";`; local relative imports retain precedence.
+`camel --gui` launches Camel Studio. The CLI searches for `camel-studio` beside itself, then in this repository's Studio build output using the CLI's matching debug/release profile first, then on `PATH`. Set `CAMEL_STUDIO_PATH` to select a specific executable. An optional `.camel` path is passed through to Studio.
 
-Arguments after `--` bind to the chosen workflow's declared parameters. Defaults come from source. Strings are passed literally; numeric and boolean parameters are parsed; arrays and records accept JSON. `check` requires no workflow arguments and does not open microphones, call tools, or contact a model.
+The source catalog is `libraries/index.json`. It declares each library's independent version and Git revision. The CLI reads this checkout's catalog for development and uses the remote GitHub catalog for updates after packaging; remote installs require access to both the catalog and source repository. Use `camel library list` or `camel library search <query>` to discover packages, `install`/`update` to download a source snapshot, and `remove` to uninstall it. Set `CAMEL_HOME` to choose the installation root; otherwise libraries live under the user's local application data directory on Windows or `~/.camel` on Unix. Programs can import installed libraries with `using "@camel/standard/core.camel";`; local relative imports retain precedence.
+
+Arguments after `--` bind to the chosen workflow's declared parameters. Defaults come from source. Strings are passed literally; numeric and boolean parameters are parsed; arrays and records accept JSON. `check` validates syntax, names, language version, and statically knowable expression types. It requires no workflow arguments and does not open microphones, call tools, or contact a model.
+
+The runtime's `analyze_file`, `analyze_buffer`, and `analyze_source` APIs return an `AnalysisResult` with structured diagnostics: severity, stable phase code, primary source span, related locations, and optional help. The CLI prints all returned diagnostics, and Studio lists them in Problems. Syntax analysis still stops at its first error; semantic and type checks collect independent errors across declarations and top-level statements. Current spans are point locations because the parser does not yet retain token end offsets.
 
 `record` is a compatibility command, not a special interpreter for one demo: it overrides durations of `record(seconds)` calls. It defaults to recording until Enter. Normal `run` uses the source's duration. `--lm` remains accepted, but is unnecessary.
 
@@ -42,6 +47,7 @@ Arguments after `--` bind to the chosen workflow's declared parameters. Defaults
 
 - `language/syntax.rs`: source sites, AST, type declarations.
 - `language/lexer.rs`, `parser.rs`, `check.rs`: syntax and declaration validation.
+- `language/static_types.rs`: expression type inference and early mismatch diagnostics.
 - `language/mod.rs`: source/import loading and compiled-program ownership.
 - `language/eval.rs`, `value.rs`: execution, scopes, type boundaries, budget and task lifecycle.
 - `language/agents.rs`: model protocol, typed outputs, policy decisions and tool loops.
@@ -69,7 +75,7 @@ Model IDs come entirely from the program, commonly via `env("CAMEL_LM_MODEL", ".
 
 ## Verification scope
 
-Conformance tests use deterministic fake providers/recorders and temporary files. They cover ordinary programming, renamed/source-configured agents, strict record outputs, policy denials before dispatch, tool-result history, retry budgets, microphone request construction, imports and safe writes.
+Runtime tests use deterministic fake providers/recorders and temporary files. The versioned [`conformance/0.2`](../conformance/0.2/manifest.json) fixture suite defines accepted and rejected programs for the current language edition. Runtime tests also cover ordinary programming, agents, strict record outputs, policy denials before dispatch, tool-result history, retry budgets, microphone request construction, imports and safe writes.
 
 No live microphone is opened by automated tests. No live LM Studio/Liquid inference is claimed. HTTP(S) transport is implemented; server-specific audio adaptation and streaming are not.
 

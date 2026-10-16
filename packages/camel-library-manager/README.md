@@ -1,6 +1,6 @@
 # camel-library-manager
 
-Shared Rust package for discovering and managing Camel source libraries from the public GitHub catalog. It owns catalog validation, HTTPS downloads, installation, removal, and installed-source lookup. The Camel executable owns CLI commands; the runtime owns language parsing and import semantics. Studio can reuse the same API through the runtime's `libraries` re-export.
+Shared Rust package for discovering and managing Camel source libraries from a GitHub catalog. It owns catalog validation, HTTPS downloads, installation, removal, and installed-source lookup. The Camel executable owns CLI commands; the runtime owns language parsing and import semantics. Studio can reuse the same API through the runtime's `libraries` re-export.
 
 Version: **0.2.0**, experimental preview. License: **Apache-2.0**.
 
@@ -56,11 +56,11 @@ Set `CAMEL_HOME` to choose a data directory. Libraries are stored beneath its `l
 
 ## Catalog and installation contract
 
-The [catalog contribution guide](../../libraries/README.md) documents adding source libraries. Schema version 1 entries provide a name, description, GitHub repository, relative directory, and explicit file allowlist. Downloads currently use the repository's `main` branch, with a 60-second request timeout.
+The [catalog contribution guide](../../libraries/README.md) documents adding source libraries. Schema version 2 entries provide a name, description, semantic library version, Git revision, GitHub repository, relative directory, and explicit file allowlist. Downloads use the declared revision, with a 60-second request timeout. `camel library update <name>` reads the latest remote catalog by default; pass `--catalog` for private catalogs or a local snapshot.
 
 All files download into a temporary directory before the existing installation changes. Replacement uses a backup directory and restores it if the final rename fails. A subsequent install recovers a backup left by an interrupted replacement. Repeated installation replaces the snapshot; repeated removal returns `false` when already absent. Writes to the same package must be serialized by callers. Replacement spans multiple renames, so it is not a cross-process transaction.
 
-Version pinning, dependency resolution, checksum/signature verification, and automatic update scheduling are future work. Installing a library downloads source; importing trusted source into a workflow may grant it that workflow's normal capabilities.
+Catalog versions and Git revisions let source libraries advance independently of the runtime. The catalog entry pins the intended revision; the installation metadata records that entry. Dependency resolution, content checksums/signatures, and automatic update scheduling remain future work. Installing a library downloads source; importing trusted source into a workflow may grant it that workflow's normal capabilities.
 
 ## Build and checks
 

@@ -1,13 +1,16 @@
 mod agents;
+mod analysis;
 mod check;
 mod eval;
 mod host;
 mod inspect;
 mod lexer;
 mod parser;
+mod static_types;
 mod syntax;
 mod value;
 
+pub use analysis::{analyze_buffer, analyze_file, analyze_source, AnalysisResult};
 pub use eval::{Engine, Execution, Limits};
 pub use host::{Capability, ExecutionEvent, Host, ModelProvider, ToolRegistry};
 pub use inspect::{Declaration, Parameter};
@@ -16,8 +19,11 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-pub use syntax::{Error, Result, Site, Type};
+pub use syntax::{Diagnostic, Error, RelatedInformation, Result, Severity, Site, SourceSpan, Type};
 pub use value::Value;
+
+/// Maximum UTF-8 source bytes accepted for one Camel file.
+pub const MAX_SOURCE_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct CompiledProgram {
@@ -26,60 +32,81 @@ pub struct CompiledProgram {
 }
 impl CompiledProgram {
     pub fn from_source(name: &str, source: &str) -> Result<Self> {
-        let p = parser::parse(name, source)?;
+        analyze_source(name, source).into_program()
+    }
+    pub(super) fn compile_source_with_diagnostics(
+        name: &str,
+        source: &str,
+    ) -> std::result::Result<Self, Vec<Diagnostic>> {
+        let p = parser::parse(name, source)
+            .map_err(|error| vec![Diagnostic::from_error("CAMEL-SYNTAX-001", error)])?;
         if !p.imports.is_empty() {
-            return Err(Error::at(&p.imports[0].1, "use load() to resolve imports"));
+            return Err(vec![Diagnostic::from_error(
+                "CAMEL-IMPORT-001",
+                Error::at(&p.imports[0].1, "use load() to resolve imports"),
+            )]);
         }
-        check::check(&p)?;
+        let diagnostics = checked_diagnostics(&p);
+        if !diagnostics.is_empty() {
+            return Err(diagnostics);
+        }
         Ok(Self {
             program: Arc::new(p),
             root: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
         })
     }
     pub fn load(path: impl AsRef<Path>) -> Result<Self> {
-        let mut loaded = BTreeSet::new();
-        let mut active = BTreeSet::new();
-        let mut merged = syntax::Program::default();
-        let site = Site {
-            file: path.as_ref().display().to_string(),
-            line: 1,
-            column: 1,
-        };
-        let entry = path
-            .as_ref()
-            .canonicalize()
-            .map_err(|e| Error::at(&site, e.to_string()))?;
-        load_module(&entry, &mut loaded, &mut active, &mut merged, &site, None)?;
-        check::check(&merged)?;
-        Ok(Self {
-            program: Arc::new(merged),
-            root: entry.parent().unwrap().to_path_buf(),
-        })
+        analyze_file(path).into_program()
     }
     /// Check an editor buffer without saving or executing it. Imports resolve beside its path.
     pub fn from_source_at(path: impl AsRef<Path>, source: &str) -> Result<Self> {
+        analyze_buffer(path, source).into_program()
+    }
+    pub(super) fn compile_path_with_diagnostics(
+        path: impl AsRef<Path>,
+        source: Option<&str>,
+    ) -> std::result::Result<Self, Vec<Diagnostic>> {
         let path = path.as_ref();
         let site = Site {
             file: path.display().to_string(),
             line: 1,
             column: 1,
         };
-        let parent = path
-            .parent()
-            .filter(|p| !p.as_os_str().is_empty())
-            .unwrap_or(Path::new("."))
-            .canonicalize()
-            .map_err(|e| Error::at(&site, e.to_string()))?;
-        let entry = parent.join(
-            path.file_name()
-                .ok_or_else(|| Error::at(&site, "missing filename"))?,
-        );
-        let entry = if entry.exists() {
-            entry
+        let entry = if source.is_some() {
+            let parent = path
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .unwrap_or(Path::new("."))
                 .canonicalize()
-                .map_err(|e| Error::at(&site, e.to_string()))?
+                .map_err(|e| {
+                    vec![Diagnostic::from_error(
+                        "CAMEL-ANALYSIS-001",
+                        Error::at(&site, e.to_string()),
+                    )]
+                })?;
+            let entry = parent.join(path.file_name().ok_or_else(|| {
+                vec![Diagnostic::from_error(
+                    "CAMEL-ANALYSIS-001",
+                    Error::at(&site, "missing filename"),
+                )]
+            })?);
+            if entry.exists() {
+                entry.canonicalize().map_err(|e| {
+                    vec![Diagnostic::from_error(
+                        "CAMEL-ANALYSIS-001",
+                        Error::at(&site, e.to_string()),
+                    )]
+                })?
+            } else {
+                entry
+            }
         } else {
-            entry
+            path.canonicalize().map_err(|e| {
+                vec![Diagnostic::from_error(
+                    "CAMEL-ANALYSIS-001",
+                    Error::at(&site, e.to_string()),
+                )]
+            })?
         };
         let mut merged = syntax::Program::default();
         load_module(
@@ -88,15 +115,18 @@ impl CompiledProgram {
             &mut BTreeSet::new(),
             &mut merged,
             &site,
-            Some(source),
-        )?;
-        check::check(&merged)?;
+            source,
+        )
+        .map_err(|error| vec![Diagnostic::from_error("CAMEL-ANALYSIS-001", error)])?;
+        let diagnostics = checked_diagnostics(&merged);
+        if !diagnostics.is_empty() {
+            return Err(diagnostics);
+        }
         Ok(Self {
             program: Arc::new(merged),
             root: entry.parent().unwrap().to_path_buf(),
         })
     }
-
     pub fn parse_arguments(&self, entry: &str, raw: &[String]) -> Result<Vec<Value>> {
         let params = self.entry_parameters(entry)?;
         let site = &self.program.functions[entry].site;
@@ -147,7 +177,19 @@ impl CompiledProgram {
             .map(|p| (p.name.clone(), p.ty.clone()))
             .collect())
     }
+
+    pub fn language_version(&self) -> &'static str {
+        check::LANGUAGE_VERSION
+    }
 }
+
+fn checked_diagnostics(program: &syntax::Program) -> Vec<Diagnostic> {
+    check::check_diagnostics(program)
+        .into_iter()
+        .map(|(error, code)| Diagnostic::from_error(code, error))
+        .collect()
+}
+
 fn load_module(
     path: &Path,
     loaded: &mut BTreeSet<PathBuf>,
@@ -174,6 +216,18 @@ fn load_module(
         None => std::fs::read_to_string(path).map_err(|e| Error::at(site, e.to_string()))?,
     };
     let p = parser::parse(&path.display().to_string(), &text)?;
+    if let Some(version) = &p.language_version {
+        if let Some(existing) = &merged.language_version {
+            if existing != version {
+                return Err(Error::at(
+                    &p.sites.values().next().cloned().unwrap_or_else(|| site.clone()),
+                    format!("imported module declares language version '{version}', but the program uses '{existing}'"),
+                ));
+            }
+        } else {
+            merged.language_version = Some(version.clone());
+        }
+    }
     for (relative, site) in &p.imports {
         let relative = Path::new(relative);
         if relative.is_absolute() || relative.extension().is_none_or(|e| e != "camel") {

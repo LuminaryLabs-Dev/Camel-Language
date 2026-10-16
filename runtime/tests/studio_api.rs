@@ -1,5 +1,68 @@
-use camel_audio_runtime::language::{CompiledProgram, Engine, ExecutionEvent, Host};
+use camel_audio_runtime::language::{
+    analyze_source, CompiledProgram, Engine, ExecutionEvent, Host, Severity,
+};
 use std::sync::{Arc, Mutex};
+
+#[test]
+fn analyze_source_returns_program_metadata_and_structured_diagnostic() {
+    let valid = analyze_source("good.camel", "workflow int Main() { return 7; }");
+    assert!(valid.is_valid());
+    assert!(valid.program().is_some());
+    assert!(valid.diagnostics().is_empty());
+    assert!(valid.declarations().iter().any(|d| d.name == "Main"));
+
+    let invalid = analyze_source("bad.camel", "workflow int Main() { return \"x\"; }");
+    assert!(!invalid.is_valid());
+    assert!(invalid.program().is_none());
+    assert_eq!(invalid.diagnostics().len(), 1);
+    assert_eq!(invalid.diagnostics()[0].severity, Severity::Error);
+    assert_eq!(invalid.diagnostics()[0].code, "CAMEL-TYPE-001");
+    assert_eq!(
+        invalid.diagnostics()[0].primary_span.start.file,
+        "bad.camel"
+    );
+    assert_eq!(invalid.diagnostics()[0].primary_span.start.line, 1);
+    assert!(invalid.diagnostics()[0].related.is_empty());
+    assert!(invalid.diagnostics()[0].help.is_none());
+}
+
+#[test]
+fn analysis_collects_independent_type_diagnostics_in_source_order() {
+    let source = concat!(
+        "workflow void Main() {\n",
+        "  int first = \"bad\";\n",
+        "  int second = false;\n",
+        "}\n",
+        "workflow int Other() { return \"also bad\"; }"
+    );
+    let result = analyze_source("multiple-errors.camel", source);
+
+    assert!(!result.is_valid());
+    assert_eq!(result.diagnostics().len(), 3);
+    assert!(result
+        .diagnostics()
+        .iter()
+        .all(|diagnostic| diagnostic.code == "CAMEL-TYPE-001"));
+    assert_eq!(result.diagnostics()[0].primary_span.start.line, 2);
+    assert_eq!(result.diagnostics()[1].primary_span.start.line, 3);
+    assert_eq!(result.diagnostics()[2].primary_span.start.line, 5);
+}
+
+#[test]
+fn analysis_keeps_first_error_compatibility_for_program_loaders() {
+    let result = analyze_source(
+        "bad-syntax.camel",
+        "workflow int First( { return 1; } workflow int Second( { return 2; }",
+    );
+
+    assert_eq!(result.diagnostics().len(), 1);
+    assert_eq!(result.diagnostics()[0].code, "CAMEL-SYNTAX-001");
+    let error = match result.into_program() {
+        Err(error) => error,
+        Ok(_) => panic!("invalid source unexpectedly produced a program"),
+    };
+    assert_eq!(error.site.file, "bad-syntax.camel");
+}
 
 #[test]
 fn checking_unsaved_buffers_resolves_imports_without_running_defaults() {

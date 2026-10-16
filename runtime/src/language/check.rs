@@ -5,10 +5,11 @@ pub const BUILTINS: &[&str] = &[
     "log", "env", "record", "audio", "json", "len", "string", "int", "double", "assert", "range",
     "clock",
 ];
+pub const LANGUAGE_VERSION: &str = "0.2";
 const KEYWORDS: &[&str] = &[
     "record", "agent", "policy", "tool", "workflow", "using", "import", "if", "else", "while",
     "for", "foreach", "in", "return", "break", "continue", "throw", "try", "catch", "finally",
-    "var", "new", "spawn", "await", "true", "false", "null",
+    "var", "new", "spawn", "await", "true", "false", "null", "version",
 ];
 fn binding_name(name: &str, site: &Site) -> Result<()> {
     if KEYWORDS.contains(&name) {
@@ -18,9 +19,33 @@ fn binding_name(name: &str, site: &Site) -> Result<()> {
     }
 }
 
-pub fn check(p: &Program) -> Result<()> {
+/// Collect independent declaration-level diagnostics without stopping at the
+/// first invalid declaration. A declaration still stops at its first error
+/// to avoid cascades; later declarations are checked against the full program.
+pub(super) fn check_diagnostics(p: &Program) -> Vec<(Error, &'static str)> {
+    const CHECK_CODE: &str = "CAMEL-CHECK-001";
+    const TYPE_CODE: &str = "CAMEL-TYPE-001";
+    let mut diagnostics = Vec::new();
+    if let Some(version) = &p.language_version {
+        if version != LANGUAGE_VERSION {
+            diagnostics.push((Error::at(
+                p.sites.values().next().unwrap_or(&Site {
+                    file: "<source>".into(),
+                    line: 1,
+                    column: 1,
+                }),
+                format!(
+                    "unsupported Camel language version '{version}'; this runtime supports '{LANGUAGE_VERSION}'"
+                ),
+            ), CHECK_CODE));
+            return diagnostics;
+        }
+    }
     for (name, site) in &p.sites {
-        binding_name(name, site)?;
+        if let Err(error) = binding_name(name, site) {
+            diagnostics.push((error, CHECK_CODE));
+            continue;
+        }
         if BUILTINS.contains(&name.as_str())
             || [
                 "void",
@@ -36,7 +61,7 @@ pub fn check(p: &Program) -> Result<()> {
             ]
             .contains(&name.as_str())
         {
-            return Err(Error::at(site, format!("'{name}' is reserved")));
+            diagnostics.push((Error::at(site, format!("'{name}' is reserved")), CHECK_CODE));
         }
     }
     let global: BTreeSet<String> = p
@@ -48,80 +73,125 @@ pub fn check(p: &Program) -> Result<()> {
     let validator = Checker { p, global };
     for (name, fields) in &p.records {
         for (field, t) in fields {
-            binding_name(field, &p.sites[name])?;
-            if *t == Type::named("void") {
-                return Err(Error::at(&p.sites[name], "record field cannot be void"));
+            if let Err(error) = binding_name(field, &p.sites[name]) {
+                diagnostics.push((error, CHECK_CODE));
+                continue;
             }
-            validator.ty(t, &p.sites[name])?;
+            if *t == Type::named("void") {
+                diagnostics.push((
+                    Error::at(&p.sites[name], "record field cannot be void"),
+                    CHECK_CODE,
+                ));
+                continue;
+            }
+            if let Err(error) = validator.ty(t, &p.sites[name]) {
+                diagnostics.push((error, CHECK_CODE));
+            }
         }
     }
     for f in p.functions.values() {
-        validator.ty(&f.returns, &f.site)?;
-        let locals = validator.params(&f.params, &f.site)?;
-        validator.stmt(&f.body, &mut vec![locals], 0, &f.returns)?;
+        let checked = (|| {
+            validator.ty(&f.returns, &f.site)?;
+            let locals = validator.params(&f.params, &f.site)?;
+            validator.stmt(&f.body, &mut vec![locals], 0, &f.returns)
+        })();
+        if let Err(error) = checked {
+            diagnostics.push((error, CHECK_CODE));
+        } else {
+            diagnostics.extend(
+                super::static_types::check_function_diagnostics(p, f)
+                    .into_iter()
+                    .map(|error| (error, TYPE_CODE)),
+            );
+        }
     }
     for (name, c) in &p.agents {
-        validator.config(
-            c,
-            &[
-                "model",
-                "system",
-                "tools",
-                "policy",
-                "response",
-                "maxTurns",
-                "retries",
-                "temperature",
-            ],
-            &p.sites[name],
-        )?;
-        if !c.contains_key("model") {
-            return Err(Error::at(&p.sites[name], "agent requires model"));
-        }
-        if let Some(e) = c.get("response") {
-            match &e.kind {
-                ExprKind::Name(n) if p.records.contains_key(n) => {}
-                _ => return Err(Error::at(&e.site, "response must name a record")),
+        let checked = (|| {
+            validator.config(
+                c,
+                &[
+                    "model",
+                    "system",
+                    "tools",
+                    "policy",
+                    "response",
+                    "maxTurns",
+                    "retries",
+                    "temperature",
+                ],
+                &p.sites[name],
+            )?;
+            if !c.contains_key("model") {
+                return Err(Error::at(&p.sites[name], "agent requires model"));
             }
-        }
-        if let Some(e) = c.get("policy") {
-            match &e.kind {
-                ExprKind::Name(n) if p.policies.contains_key(n) => {}
-                _ => return Err(Error::at(&e.site, "policy must name a policy")),
+            if let Some(e) = c.get("response") {
+                match &e.kind {
+                    ExprKind::Name(n) if p.records.contains_key(n) => {}
+                    _ => return Err(Error::at(&e.site, "response must name a record")),
+                }
             }
-        }
-        for key in ["tools"] {
-            if let Some(e) = c.get(key) {
+            if let Some(e) = c.get("policy") {
+                match &e.kind {
+                    ExprKind::Name(n) if p.policies.contains_key(n) => {}
+                    _ => return Err(Error::at(&e.site, "policy must name a policy")),
+                }
+            }
+            if let Some(e) = c.get("tools") {
                 validator.tool_list(e)?;
             }
+            Ok(())
+        })();
+        if let Err(error) = checked {
+            diagnostics.push((error, CHECK_CODE));
         }
     }
     for (name, c) in &p.policies {
-        validator.config(
-            c,
-            &[
-                "allowTools",
-                "maxToolCalls",
-                "allowNetwork",
-                "allowFileRead",
-                "allowFileWrite",
-                "allowShell",
-            ],
-            &p.sites[name],
-        )?;
-        if let Some(e) = c.get("allowTools") {
-            validator.tool_list(e)?;
+        let checked = (|| {
+            validator.config(
+                c,
+                &[
+                    "allowTools",
+                    "maxToolCalls",
+                    "allowNetwork",
+                    "allowFileRead",
+                    "allowFileWrite",
+                    "allowShell",
+                ],
+                &p.sites[name],
+            )?;
+            if let Some(e) = c.get("allowTools") {
+                validator.tool_list(e)?;
+            }
+            Ok(())
+        })();
+        if let Err(error) = checked {
+            diagnostics.push((error, CHECK_CODE));
         }
     }
     for t in p.tools.values() {
-        validator.ty(&t.returns, &t.site)?;
-        validator.params(&t.params, &t.site)?;
-        validator.config(&t.config, &["handler", "description"], &t.site)?;
-        if !t.config.contains_key("handler") {
-            return Err(Error::at(&t.site, "tool requires handler"));
+        let checked = (|| {
+            validator.ty(&t.returns, &t.site)?;
+            validator.params(&t.params, &t.site)?;
+            validator.config(&t.config, &["handler", "description"], &t.site)?;
+            if !t.config.contains_key("handler") {
+                return Err(Error::at(&t.site, "tool requires handler"));
+            }
+            Ok(())
+        })();
+        if let Err(error) = checked {
+            diagnostics.push((error, CHECK_CODE));
+        } else if let Err(error) = super::static_types::check_tool(p, t) {
+            diagnostics.push((error, TYPE_CODE));
         }
     }
-    Ok(())
+    diagnostics.sort_by(|(left, _), (right, _)| {
+        left.site
+            .file
+            .cmp(&right.site.file)
+            .then(left.site.line.cmp(&right.site.line))
+            .then(left.site.column.cmp(&right.site.column))
+    });
+    diagnostics
 }
 struct Checker<'a> {
     p: &'a Program,

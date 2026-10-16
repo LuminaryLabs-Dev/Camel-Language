@@ -1,8 +1,6 @@
 # Camel Studio — 0.2.0 preview
 
-A native Rust, script-first IDE for Camel agent orchestration. Built with [eframe/egui](https://docs.rs/eframe/0.33.3/eframe/) and native [rfd file dialogs](https://docs.rs/rfd/0.15.4/rfd/). No browser, webview, JavaScript, or Python runtime is required.
-
-![Actual native Camel Studio rendering](../docs/images/camel-studio.png)
+A native Rust code editor and workflow runner for Camel agent orchestration. Edit Camel scripts directly, validate them, configure workflow inputs, and inspect execution results. Shipped examples and standard-library sources are kept out of the default project browser. Built with [eframe/egui](https://docs.rs/eframe/0.33.3/eframe/) and native [rfd file dialogs](https://docs.rs/rfd/0.15.4/rfd/). No browser, webview, JavaScript, or Python runtime is required.
 
 ## Launch
 
@@ -22,18 +20,21 @@ $env:RUSTFLAGS = "-C linker=lld-link"
 
 After building, launch `studio\target\release\camel-studio.exe` directly. In a distribution ZIP, launch `bin\camel-studio.exe`; neither Cargo nor a separate Camel executable is needed to run Studio. Keep the extracted folder structure for its examples and documentation.
 
-## Workspace
+When the CLI and Studio are installed together, run `camel --gui` to open Studio. To select another Studio build, set `CAMEL_STUDIO_PATH` to its executable before running the command.
 
-- **Project / Outline:** `.camel` scripts in the opened folder and declarations from the actual parser. Build caches, Git directories, symlinks, and historical `dist` copies are excluded. Scanning is limited to 500 files and 12 directory levels.
-- **Editor:** document tabs, dirty indicators, syntax coloring, line numbers, undo/redo and clipboard keyboard shortcuts, find, and source navigation. Files are UTF-8, up to 1 MiB. Windows uses Segoe UI / Consolas when installed, with bundled font fallbacks.
-- **Orchestration:** choose an actual workflow and enter its typed parameters. Optional parameters can use source defaults. Agents, models, response contracts, tools, and policies are read from the AST, not invented or evaluated by the IDE.
-- **Runs:** live workflow, agent, model-request, tool, and microphone events with status and elapsed time. Console contains script logs and worker diagnostics; Result contains the returned JSON; Problems links to source locations. Output belongs to the labeled last run, even if another document is selected.
+## Editor and project
 
-The first launch opens `Camel/examples/orchestration.camel`: two bounded reviewers run concurrently and join their typed results. Nothing executes or records automatically.
+- **Editor:** the central pane edits Camel source, with tabs, find, outline, and diagnostics. New launches open a fresh starter document; pass a script path on the command line to open a specific file.
+- **Project:** the left browser lists user scripts. When running from a full Camel distribution, shipped examples and standard-library files are excluded from that list; use Open to choose a file explicitly. Build caches, Git directories, symlinks, and historical `dist` copies are excluded. Scanning is limited to 500 files and 12 directory levels.
+- **Setup:** select a workflow and enter its inputs. Agents, models, integrations, data types, and safety rules appear in the inspector.
+- **Runs:** live workflow, agent, model-request, tool, and microphone events with status and elapsed time. Console contains workflow logs and worker status; Result contains the returned JSON; Problems summarizes setup or run issues.
+- **Library Manager:** open **Tools → Manage Libraries…** to search the catalog, inspect versions, and install, update, or remove libraries. Catalog refresh and package downloads run in the background. Packages install under `CAMEL_HOME/libraries`; the default is `%LOCALAPPDATA%/Camel/libraries` on Windows and `~/.camel/libraries` elsewhere.
+
+The first launch does not open a packaged example or run anything automatically.
 
 ## First offline run
 
-Open `Camel/examples/programming_core.camel`, leave `count` at its source default of 6, and press **F5**. Result should contain Fibonacci **8** and sum-of-squares **91**. No model server is required.
+Open `Camel/examples/programming_core.camel`, leave `count` at its recommended value of 6, and press **F5**. Result should contain Fibonacci **8** and sum-of-squares **91**. No model server is required.
 
 For agent examples, start LM Studio at `http://localhost:1234` and load the model named in the script. The endpoint field configures the next run; it is not a claim that a server is connected. `CAMEL_LM_TOKEN`, `LM_API_TOKEN`, model-specific environment variables, and `CAMEL_LM_TIMEOUT_SECONDS` are inherited by the worker. Studio does not display or store tokens.
 

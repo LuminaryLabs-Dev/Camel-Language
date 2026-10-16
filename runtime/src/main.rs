@@ -1,8 +1,13 @@
 use camel_audio_runtime::{
-    language::{CompiledProgram, Engine, Host, Limits, Value},
+    language::{analyze_file, Engine, Host, Limits, Value},
     libraries, LmStudioClient,
 };
-use std::{env, path::PathBuf, sync::Arc};
+use std::{
+    env,
+    path::{Path, PathBuf},
+    process::Command,
+    sync::Arc,
+};
 
 fn main() {
     if let Err(e) = run() {
@@ -26,6 +31,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if args.first().is_some_and(|s| s == "library" || s == "lib") {
         return library_command(&args[1..]);
     }
+    if args.first().is_some_and(|s| s == "--gui") {
+        return launch_studio(&args[1..]);
+    }
     if args.is_empty() || args.first().is_some_and(|s| s == "--help" || s == "-h") {
         help();
         return Ok(());
@@ -35,11 +43,23 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
     let options = options(args).map_err(std::io::Error::other)?;
-    let program = CompiledProgram::load(&options.source)?;
+    let analysis = analyze_file(&options.source);
+    if !analysis.is_valid() {
+        for diagnostic in analysis.diagnostics() {
+            eprintln!("{diagnostic}");
+        }
+        return Err(format!(
+            "analysis failed with {} diagnostic(s)",
+            analysis.diagnostics().len()
+        )
+        .into());
+    }
+    let program = analysis.into_program()?;
     if options.check {
         println!(
-            "ok: {} (parsed and name-checked; no program execution)",
-            options.source.display()
+            "ok: {} (Camel {}; parsed, name- and type-checked; no program execution)",
+            options.source.display(),
+            program.language_version()
         );
         return Ok(());
     }
@@ -86,6 +106,71 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     Ok(())
 }
+fn launch_studio(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    let studio_name = format!("camel-studio{}", env::consts::EXE_SUFFIX);
+    let executable = if let Some(path) = env::var_os("CAMEL_STUDIO_PATH").map(PathBuf::from) {
+        if !path.is_file() {
+            return Err(format!(
+                "CAMEL_STUDIO_PATH does not point to a file: {}",
+                path.display()
+            )
+            .into());
+        }
+        path
+    } else {
+        let current_exe = env::current_exe()?;
+        let sibling = current_exe.with_file_name(&studio_name);
+        if sibling.is_file() {
+            sibling
+        } else {
+            let preferred_profile = current_exe
+                .parent()
+                .and_then(Path::file_name)
+                .and_then(|name| name.to_str());
+            let profiles = if preferred_profile == Some("release") {
+                ["release", "debug"]
+            } else {
+                ["debug", "release"]
+            };
+            let repo_candidate = current_exe.ancestors().find_map(|ancestor| {
+                if !ancestor.join("studio/Cargo.toml").is_file() {
+                    return None;
+                }
+                profiles
+                    .into_iter()
+                    .map(|profile| {
+                        ancestor
+                            .join("studio/target")
+                            .join(profile)
+                            .join(&studio_name)
+                    })
+                    .find(|candidate| candidate.is_file())
+            });
+            match repo_candidate {
+                Some(path) => path,
+                None => {
+                    if let Some(path) = studio_on_path() {
+                        path
+                    } else {
+                        return Err(format!(
+                            "Camel Studio was not found; build/install {studio_name} beside camel, add it to PATH, or set CAMEL_STUDIO_PATH"
+                        )
+                        .into());
+                    }
+                }
+            }
+        }
+    };
+    Command::new(executable).args(args).spawn()?;
+    Ok(())
+}
+fn studio_on_path() -> Option<PathBuf> {
+    env::var_os("PATH").and_then(|paths| {
+        env::split_paths(&paths)
+            .map(|directory| directory.join(format!("camel-studio{}", env::consts::EXE_SUFFIX)))
+            .find(|candidate| candidate.is_file())
+    })
+}
 fn library_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let mut positional = Vec::new();
     let mut source = None;
@@ -120,14 +205,18 @@ fn library_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             let query = if command == "search" { argument.ok_or("usage: camel library search <query>")? } else { "" }.to_lowercase();
             for item in libraries::catalog(source)?.libraries.iter().filter(|item| item.name.to_lowercase().contains(&query) || item.description.to_lowercase().contains(&query)) {
                 let state = if libraries::installed_library(&item.name).is_some() { "installed" } else { "available" };
-                println!("{}\t{}\t{}", item.name, state, item.description);
+                println!("{}\t{}\t{}\t{}", item.name, item.version, state, item.description);
             }
         }
         "install" | "update" => {
             let name = argument.ok_or("usage: camel library install <name>")?;
-            let catalog = libraries::catalog(source)?;
+            let catalog = if command == "update" && source.is_none() {
+                libraries::catalog(Some(libraries::CATALOG_URL))?
+            } else {
+                libraries::catalog(source)?
+            };
             let item = catalog.libraries.iter().find(|item| item.name == name).ok_or_else(|| format!("library '{name}' is not in the catalog"))?;
-            println!("installed {} at {}", item.name, libraries::install(item)?.display());
+            println!("installed {} {} at {}", item.name, item.version, libraries::install(item)?.display());
         }
         _ => return Err(format!("unknown library command '{command}'; use camel library help").into()),
     }
@@ -212,13 +301,15 @@ fn help() {
   camel check <file.camel>
   camel [run] <file.camel> [--workflow Main] [--json] [--trace] [--steps N] -- [arguments]
   camel record <file.camel> [--seconds N|--until-enter] [--save-recording path] -- [arguments]
-  camel library [list|search <query>|install <name>|update <name>|remove <name>] [--catalog <url>]
+  camel --gui [file.camel]
+  camel library [list|search <query>|install <name>|update <name>|remove <name>] [--catalog <path-or-url>]
 
-record is a compatibility command that overrides record(seconds) builtins.
+record is a compatibility command that overrides record(seconds) host input.
 Without it, the program controls when and how long to record. Nothing records during check.
 --json emits one object containing the workflow value and captured logs.
 Model calls use CAMEL_LM_ENDPOINT (default http://localhost:1234), CAMEL_LM_TOKEN,
 and CAMEL_LM_TIMEOUT_SECONDS (default 300). Models come from agent declarations.
+--gui launches Camel Studio; set CAMEL_STUDIO_PATH to select its executable.
 The camel-audio-runtime executable is an alias for this same interpreter."#
     );
 }

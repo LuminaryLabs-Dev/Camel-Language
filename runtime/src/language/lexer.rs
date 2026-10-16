@@ -1,4 +1,7 @@
-use super::syntax::{Error, Result, Site};
+use super::{
+    syntax::{Error, Result, Site},
+    MAX_SOURCE_BYTES,
+};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Kind {
@@ -15,7 +18,7 @@ pub struct Token {
 }
 
 pub fn lex(file: &str, source: &str) -> Result<Vec<Token>> {
-    if source.len() > 8 * 1024 * 1024 {
+    if source.len() > MAX_SOURCE_BYTES {
         return Err(Error::at(
             &Site {
                 file: file.into(),
