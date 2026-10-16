@@ -17,6 +17,14 @@ pub struct Token {
     pub site: Site,
 }
 
+fn through(site: &Site, line: usize, column: usize, offset: usize) -> Site {
+    let mut ranged = site.clone();
+    ranged.end_line = line;
+    ranged.end_column = column;
+    ranged.end_offset = offset;
+    ranged
+}
+
 pub fn lex(file: &str, source: &str) -> Result<Vec<Token>> {
     if source.len() > MAX_SOURCE_BYTES {
         return Err(Error::at(
@@ -24,17 +32,22 @@ pub fn lex(file: &str, source: &str) -> Result<Vec<Token>> {
                 file: file.into(),
                 line: 1,
                 column: 1,
+                offset: 0,
+                end_line: 1,
+                end_column: 1,
+                end_offset: 0,
             },
             "source file exceeds 8 MiB",
         ));
     }
     let chars: Vec<char> = source.chars().collect();
-    let (mut i, mut line, mut column) = (0, 1, 1);
+    let (mut i, mut line, mut column, mut byte_offset) = (0, 1, 1, 0);
     let mut tokens = Vec::new();
     macro_rules! advance {
         () => {{
             let c = chars[i];
             i += 1;
+            byte_offset += c.len_utf8();
             if c == '\n' {
                 line += 1;
                 column = 1;
@@ -45,10 +58,14 @@ pub fn lex(file: &str, source: &str) -> Result<Vec<Token>> {
         }};
     }
     while i < chars.len() {
-        let site = Site {
+        let mut site = Site {
             file: file.into(),
             line,
             column,
+            offset: byte_offset,
+            end_line: line,
+            end_column: column,
+            end_offset: byte_offset,
         };
         let c = chars[i];
         if c.is_whitespace() {
@@ -68,7 +85,7 @@ pub fn lex(file: &str, source: &str) -> Result<Vec<Token>> {
                 advance!();
             }
             if i == chars.len() {
-                return Err(Error::at(&site, "unterminated comment"));
+                return Err(Error::at(&through(&site, line, column, byte_offset), "unterminated comment"));
             }
             advance!();
             advance!();
@@ -85,7 +102,7 @@ pub fn lex(file: &str, source: &str) -> Result<Vec<Token>> {
                 let ch = advance!();
                 if ch == '\\' {
                     if i == chars.len() {
-                        return Err(Error::at(&site, "unterminated escape"));
+                        return Err(Error::at(&through(&site, line, column, byte_offset), "unterminated escape"));
                     }
                     value.push(match advance!() {
                         'n' => '\n',
@@ -93,14 +110,14 @@ pub fn lex(file: &str, source: &str) -> Result<Vec<Token>> {
                         't' => '\t',
                         '"' => '"',
                         '\\' => '\\',
-                        other => return Err(Error::at(&site, format!("invalid escape \\{other}"))),
+                        other => return Err(Error::at(&through(&site, line, column, byte_offset), format!("invalid escape \\{other}"))),
                     });
                 } else {
                     value.push(ch);
                 }
             }
             if i == chars.len() {
-                return Err(Error::at(&site, "unterminated string"));
+                return Err(Error::at(&through(&site, line, column, byte_offset), "unterminated string"));
             }
             advance!();
             Kind::Text(value, interpolation)
@@ -134,9 +151,12 @@ pub fn lex(file: &str, source: &str) -> Result<Vec<Token>> {
                 advance!();
                 Kind::Symbol(c.to_string())
             } else {
-                return Err(Error::at(&site, format!("unexpected character '{c}'")));
+                return Err(Error::at(&through(&site, line, column + 1, byte_offset + c.len_utf8()), format!("unexpected character '{c}'")));
             }
         };
+        site.end_line = line;
+        site.end_column = column;
+        site.end_offset = byte_offset;
         if tokens.len() >= 100_000 {
             return Err(Error::at(&site, "source token budget exhausted"));
         }
@@ -148,6 +168,10 @@ pub fn lex(file: &str, source: &str) -> Result<Vec<Token>> {
             file: file.into(),
             line,
             column,
+            offset: byte_offset,
+            end_line: line,
+            end_column: column,
+            end_offset: byte_offset,
         },
     });
     Ok(tokens)

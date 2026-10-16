@@ -27,7 +27,7 @@ When the CLI and Studio are installed together, run `camel --gui` to open Studio
 - **Editor:** the central pane edits Camel source, with tabs, find, outline, and diagnostics. New launches open a fresh starter document; pass a script path on the command line to open a specific file.
 - **Project:** the left browser lists user scripts. When running from a full Camel distribution, shipped examples and standard-library files are excluded from that list; use Open to choose a file explicitly. Build caches, Git directories, symlinks, and historical `dist` copies are excluded. Scanning is limited to 500 files and 12 directory levels.
 - **Setup:** select a workflow and enter its inputs. Agents, models, integrations, data types, and safety rules appear in the inspector.
-- **Runs:** live workflow, agent, model-request, tool, and microphone events with status and elapsed time. Console contains workflow logs and worker status; Result contains the returned JSON; Problems summarizes setup or run issues.
+- **Runs:** live workflow, agent, model-request, tool, and microphone events with status and elapsed time. Console contains workflow logs and worker status; Result contains the returned JSON; Problems groups syntax, analysis, type, lint, and runtime diagnostics with source navigation.
 - **Library Manager:** open **Tools → Manage Libraries…** to search the catalog, inspect versions, and install, update, or remove libraries. Catalog refresh and package downloads run in the background. Packages install under `CAMEL_HOME/libraries`; the default is `%LOCALAPPDATA%/Camel/libraries` on Windows and `~/.camel/libraries` elsewhere.
 - **Model Manager:** click **Models** in the main toolbar or open **Tools → Manage Models…** to search Hugging Face for GGUF repositories, inspect files, download one selected GGUF into a temporary local file, and register it in a running Ollama server. Select several installed models and load them together, choose context size per model, or unload them individually. Optional Hugging Face tokens are kept in memory only. Use **Use Ollama for workflow runs** to set the model service endpoint; select each imported Ollama model name in its Camel agent declaration.
 
@@ -56,6 +56,8 @@ For microphone notes, open `Camel/examples/audio_note_summarizer.camel`. `Main` 
 | Undo / Redo | Ctrl+Z / Ctrl+Shift+Z |
 
 Run saves a dirty entry file first (new files prompt for a destination). Save other edited scripts before running: imported modules are loaded from disk, not composed from unsaved tabs. Check inspects the current buffer and resolves its imports from disk, without model calls, configuration evaluation, tool effects, or microphone access. Checks are debounced, performed off the UI thread, and stale results are discarded.
+
+Problems groups syntax, analysis, type, lint, and runtime findings. It shows full messages and codes; selecting a source diagnostic opens the corresponding file and moves the editor to the reported token range. Error ranges are highlighted. Lint warnings are informational and do not block Run.
 
 Saves stage content in the destination directory and replace the file after flush/sync. An external edit detected against the last saved snapshot is refused; use a new Save As filename to preserve both versions. Save As does not silently overwrite existing files. This check is not a cross-process lock: another writer racing the final replacement is outside its guarantee. Closing dirty tabs or quitting prompts to save, discard, or cancel; there is no crash recovery or session persistence yet.
 

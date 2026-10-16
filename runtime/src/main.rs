@@ -54,10 +54,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         )
         .into());
     }
+    for diagnostic in analysis.diagnostics() {
+        eprintln!("{diagnostic}");
+    }
     let program = analysis.into_program()?;
     if options.check {
         println!(
-            "ok: {} (Camel {}; parsed, name- and type-checked; no program execution)",
+            "ok: {} (Camel {}; parsed, checked, linted; no program execution)",
             options.source.display(),
             program.language_version()
         );
@@ -89,6 +92,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             file: options.source.display().to_string(),
             line: 1,
             column: 1,
+            offset: 0,
+            end_line: 1,
+            end_column: 1,
+            end_offset: 0,
         };
         println!(
             "{}",

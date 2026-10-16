@@ -43,9 +43,95 @@ fn analysis_collects_independent_type_diagnostics_in_source_order() {
         .diagnostics()
         .iter()
         .all(|diagnostic| diagnostic.code == "CAMEL-TYPE-001"));
+    assert!(
+        result
+            .diagnostics()
+            .iter()
+            .all(|diagnostic| diagnostic.phase
+                == camel_audio_runtime::language::DiagnosticPhase::Type)
+    );
     assert_eq!(result.diagnostics()[0].primary_span.start.line, 2);
     assert_eq!(result.diagnostics()[1].primary_span.start.line, 3);
     assert_eq!(result.diagnostics()[2].primary_span.start.line, 5);
+}
+
+#[test]
+fn lint_resolves_shadowed_names_to_their_own_scopes() {
+    let source = concat!(
+        "workflow void Main() {\n",
+        "  int item = 1;\n",
+        "  {\n",
+        "    int item = 2;\n",
+        "    log(item);\n",
+        "  }\n",
+        "}"
+    );
+    let result = analyze_source("shadowed.camel", source);
+
+    assert!(result.is_valid());
+    assert_eq!(result.diagnostics().len(), 1);
+    assert_eq!(result.diagnostics()[0].code, "CAMEL-LINT-001");
+    assert_eq!(
+        result.diagnostics()[0].message,
+        "local 'item' is never used"
+    );
+    assert_eq!(result.diagnostics()[0].primary_span.start.line, 2);
+}
+
+#[test]
+fn lint_does_not_count_a_write_as_a_read() {
+    let result = analyze_source(
+        "write-only.camel",
+        "workflow void Main() { int value = 1; value = 2; }",
+    );
+
+    assert!(result.is_valid());
+    assert_eq!(result.diagnostics().len(), 1);
+    assert_eq!(
+        result.diagnostics()[0].message,
+        "local 'value' is never used"
+    );
+}
+
+#[test]
+fn lint_warnings_keep_program_runnable_and_check_codes_ignore_wording() {
+    let with_warning = analyze_source("warning.camel", "workflow void Main(int unused) {}");
+    assert!(with_warning.is_valid());
+    assert!(with_warning.program().is_some());
+    assert_eq!(with_warning.diagnostics()[0].code, "CAMEL-LINT-002");
+
+    let errors = analyze_source(
+        "stable-codes.camel",
+        concat!(
+            "workflow void Main() { return 1; }\n",
+            "int Helper() { return missing; }"
+        ),
+    );
+    assert_eq!(errors.diagnostics().len(), 2);
+    assert!(errors
+        .diagnostics()
+        .iter()
+        .all(|diagnostic| diagnostic.code == "CAMEL-CHECK-001"));
+    assert!(errors
+        .diagnostics()
+        .iter()
+        .all(|diagnostic| diagnostic.phase
+            == camel_audio_runtime::language::DiagnosticPhase::Analysis));
+}
+
+#[test]
+fn unknown_type_has_an_explicit_type_diagnostic_code() {
+    let result = analyze_source(
+        "unknown-type.camel",
+        "workflow void Main() { Missing value = 1; }",
+    );
+
+    assert_eq!(result.diagnostics().len(), 1);
+    assert_eq!(result.diagnostics()[0].code, "CAMEL-TYPE-002");
+    assert_eq!(
+        result.diagnostics()[0].phase,
+        camel_audio_runtime::language::DiagnosticPhase::Type
+    );
 }
 
 #[test]

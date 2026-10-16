@@ -1,8 +1,9 @@
 use eframe::egui::{
     self,
     text::{CCursor, CCursorRange, LayoutJob},
-    Color32, FontId, TextFormat,
+    Color32, FontId, Stroke, TextFormat,
 };
+use camel_audio_runtime::language::{Diagnostic, Severity};
 
 pub fn character_at(text: &str, line: usize, column: usize) -> usize {
     let mut row = 1;
@@ -28,6 +29,7 @@ pub fn show(
     text: &mut String,
     id: egui::Id,
     jump: Option<(usize, usize)>,
+    diagnostics: &[Diagnostic],
 ) -> (bool, (usize, usize)) {
     if let Some((line, column)) = jump {
         let mut state = egui::TextEdit::load_state(ui.ctx(), id).unwrap_or_default();
@@ -69,7 +71,7 @@ pub fn show(
                     }
                 }
                 let mut layout = |ui: &egui::Ui, buf: &dyn egui::TextBuffer, _: f32| {
-                    ui.fonts_mut(|f| f.layout_job(highlight(buf.as_str())))
+                    ui.fonts_mut(|f| f.layout_job(highlight(buf.as_str(), diagnostics)))
                 };
                 let out = egui::TextEdit::multiline(text)
                     .id(id)
@@ -103,7 +105,7 @@ pub fn show(
         });
     (changed, position)
 }
-fn highlight(source: &str) -> LayoutJob {
+fn highlight(source: &str, diagnostics: &[Diagnostic]) -> LayoutJob {
     let mut job = LayoutJob::default();
     let mut index = 0;
     while index < source.len() {
@@ -201,6 +203,24 @@ fn highlight(source: &str) -> LayoutJob {
         );
         index += len;
     }
+    for diagnostic in diagnostics {
+        let start = diagnostic.primary_span.start.offset.min(source.len());
+        let end = diagnostic.primary_span.end.offset.min(source.len());
+        if start >= end || !source.is_char_boundary(start) || !source.is_char_boundary(end) {
+            continue;
+        }
+        let color = if diagnostic.severity == Severity::Error {
+            Color32::from_rgb(255, 226, 224)
+        } else {
+            Color32::from_rgb(255, 245, 204)
+        };
+        for section in &mut job.sections {
+            if section.byte_range.start < end && section.byte_range.end > start {
+                section.format.background = color;
+                section.format.underline = Stroke::new(1.0, Color32::from_rgb(190, 55, 48));
+            }
+        }
+    }
     job.wrap.max_width = f32::INFINITY;
     job
 }
@@ -216,6 +236,6 @@ mod tests {
     #[test]
     fn highlighting_preserves_all_source_bytes() {
         let s = "// 漢\nagent A { system = $\"hé {x}\"; /*x*/ }";
-        assert_eq!(highlight(s).text, s);
+        assert_eq!(highlight(s, &[]).text, s);
     }
 }
