@@ -1237,7 +1237,7 @@ fn configure(ctx: &egui::Context) {
     style.visuals.panel_fill = Color32::from_rgb(245, 246, 248);
     style.visuals.window_fill = Color32::from_rgb(250, 250, 251);
     style.visuals.selection.bg_fill = Color32::from_rgb(204, 223, 243);
-    style.visuals.selection.stroke = egui::Stroke::new(1.0, Color32::from_rgb(39, 67, 97));
+    style.visuals.selection.stroke = egui::Stroke::new(1.0_f32, Color32::from_rgb(39, 67, 97));
     for widget in [
         &mut style.visuals.widgets.inactive,
         &mut style.visuals.widgets.hovered,
