@@ -407,8 +407,7 @@ impl ModelManager {
     fn unload_model(&mut self, name: String) {
         let endpoint = endpoint(&self.ollama_endpoint);
         self.start("Unloading model…", move |tx| {
-            let result = unload_ollama_model(&endpoint, &name)
-                .map(|_| format!("Unloaded {name}."));
+            let result = unload_ollama_model(&endpoint, &name).map(|_| format!("Unloaded {name}."));
             let _ = tx.send(Update::ModelAction(result));
         });
     }
@@ -491,16 +490,18 @@ impl ModelManager {
                     self.running = models.running;
                     self.selected_for_loading
                         .retain(|name| self.installed.iter().any(|model| &model.name == name));
-                    self.message = Some(self.pending_refresh_message.take().unwrap_or_else(|| {
-                        "Ollama model list refreshed.".into()
-                    }));
+                    self.message = Some(
+                        self.pending_refresh_message
+                            .take()
+                            .unwrap_or_else(|| "Ollama model list refreshed.".into()),
+                    );
                     finished = true;
                 }
                 Update::Installed(Err(error)) => {
                     self.message = Some(match self.pending_refresh_message.take() {
-                        Some(action) => format!(
-                            "{action} Current model status could not be refreshed: {error}"
-                        ),
+                        Some(action) => {
+                            format!("{action} Current model status could not be refreshed: {error}")
+                        }
                         None => format!("Could not reach Ollama: {error}"),
                     });
                     finished = true;

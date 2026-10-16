@@ -779,8 +779,7 @@ impl Studio {
                         .file_stem()
                         .unwrap_or_default()
                         .to_string_lossy()
-                        .replace('_', " ")
-                        .replace('-', " ");
+                        .replace(['_', '-'], " ");
                     if ui
                         .selectable_label(selected, RichText::new(label).size(12.0))
                         .clicked()
@@ -817,7 +816,7 @@ impl Studio {
             egui::ComboBox::from_id_salt("workflow").width(ui.available_width()-12.0).selected_text(if selected.is_empty(){"No workflow"}else{&selected}).show_ui(ui,|ui|{for name in &names{ui.selectable_value(&mut selected,name.clone(),name);}});
             if selected!=tab.workflow{tab.select_workflow(selected);}
             for a in &mut tab.arguments {
-                ui.horizontal(|ui|{ui.label(&a.name);ui.weak(&display_type(&a.ty));});
+                ui.horizontal(|ui|{ui.label(&a.name);ui.weak(display_type(&a.ty));});
                 ui.checkbox(&mut a.use_default,"Use default input");
                 if !a.use_default {
                     ui.add(egui::TextEdit::singleline(&mut a.text).desired_width(f32::INFINITY).hint_text(if a.ty=="string"{"Enter text"}else{"Enter a value"}));

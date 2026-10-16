@@ -383,3 +383,9 @@ The user approved implementing the general-purpose agent language foundation. Ex
 - Follow-up found `camel` resolves to the per-user install at `%LOCALAPPDATA%/Programs/Camel/bin/camel.exe`; its sibling `camel-studio.exe` was an older Oct 13 build and takes precedence over repo output.
 - After the user saved and closed Studio, replaced the installed sibling with the verified release build and confirmed matching SHA-256. Removed the temporary backup and alias and cleared the user `CAMEL_STUDIO_PATH` override, so `camel --gui` now uses the standard sibling path with the new build. Full reinstall is unnecessary.
 - No process was force-closed. The installed executable was hash-verified; visual launch after replacement was not performed. No relevant plugin was needed; `debug-it` and `run-it` skills were applied.
+
+## PR #2 CI failures — 2026-10-16
+
+- User requested a quick diagnosis and resolution for failing checks on the Camel Studio model-management PR. The GitHub connector and `gh-fix-ci` skill identified CI run 38855397450; PR #2 was already merged, so any follow-up fix requires a new change on top of main.
+- CI stable Rust 1.99 rustfmt required updates in Studio document, library-manager, and model-manager sources. Newer Clippy deprecated `AtomicUsize::fetch_update`; replaced it with an MSRV-compatible compare-exchange decrement loop because the runtime supports Rust 1.88. Studio Clippy also flagged two cleanup issues in `app.rs` (combined char replacement and needless borrow).
+- Local validation passed: runtime and Studio rustfmt checks, runtime and Studio Clippy with `-D warnings`, runtime and Studio test suites, and all three runtime workflow CLI smoke checks. Runtime test/smoke commands needed unsandboxed filesystem access because sandboxed temporary/example-file reads returned Access Denied; with access, all passed. No relevant plugin was needed beyond GitHub connector for PR/check metadata.
