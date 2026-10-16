@@ -390,3 +390,11 @@ The user approved implementing the general-purpose agent language foundation. Ex
 - CI stable Rust 1.99 rustfmt required updates in Studio document, library-manager, and model-manager sources. Newer Clippy deprecated `AtomicUsize::fetch_update`; replaced it with an MSRV-compatible compare-exchange decrement loop because the runtime supports Rust 1.88. Studio Clippy also flagged two cleanup issues in `app.rs` (combined char replacement and needless borrow).
 - The first follow-up CI run passed runtime on Linux and formatting on all four jobs, then Linux Studio Clippy exposed a Rust 1.99 `float_literal_f32_fallback` warning at `Stroke::new(1.0, ...)`; suffixed the literal as `1.0_f32` and updated the follow-up PR.
 - Local validation passed: runtime and Studio rustfmt checks, runtime and Studio Clippy with `-D warnings`, runtime and Studio test suites, all three runtime workflow CLI smoke checks, and the Studio release build. Runtime test/smoke commands needed unsandboxed filesystem access because sandboxed temporary/example-file reads returned Access Denied; with access, all passed. No relevant plugin was needed beyond GitHub connector for PR/check metadata.
+
+## Post-main-merge verification — 2026-10-16
+
+- User asked to verify tests after merging `main` into `Camel-Stables-Spans-Recovery` (merge `b232e00`).
+- The merge dropped Camel diagnostic rendering and source highlighting from Studio while retaining the editor API that requires a diagnostics argument. Restored the structured Problems groups, clickable source navigation, span diagnostics, tab-scoped runtime Problems, and passed the diagnostics slice into the editor while preserving `main`'s model manager changes. Added back the runtime tab-scope regression test.
+- Full Studio suite passes: 8 library tests and 3 worker integration tests, plus zero-test binary/doc targets.
+- Full runtime suite reaches and fails reproducibly at existing `excessive_parser_nesting_returns_an_error` due to process stack overflow. With only that test skipped, the complete remaining runtime suite passes, including all 10 shared-analysis/diagnostic API tests.
+- `git diff --check` passes. No push or commit performed; the Studio merge-reconciliation fix is local and uncommitted.
