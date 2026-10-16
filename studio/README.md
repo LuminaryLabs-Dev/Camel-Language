@@ -29,6 +29,7 @@ When the CLI and Studio are installed together, run `camel --gui` to open Studio
 - **Setup:** select a workflow and enter its inputs. Agents, models, integrations, data types, and safety rules appear in the inspector.
 - **Runs:** live workflow, agent, model-request, tool, and microphone events with status and elapsed time. Console contains workflow logs and worker status; Result contains the returned JSON; Problems summarizes setup or run issues.
 - **Library Manager:** open **Tools → Manage Libraries…** to search the catalog, inspect versions, and install, update, or remove libraries. Catalog refresh and package downloads run in the background. Packages install under `CAMEL_HOME/libraries`; the default is `%LOCALAPPDATA%/Camel/libraries` on Windows and `~/.camel/libraries` elsewhere.
+- **Model Manager:** click **Models** in the main toolbar or open **Tools → Manage Models…** to search Hugging Face for GGUF repositories, inspect files, download one selected GGUF into a temporary local file, and register it in a running Ollama server. Select several installed models and load them together, choose context size per model, or unload them individually. Optional Hugging Face tokens are kept in memory only. Use **Use Ollama for workflow runs** to set the model service endpoint; select each imported Ollama model name in its Camel agent declaration.
 
 The first launch does not open a packaged example or run anything automatically.
 
@@ -37,6 +38,8 @@ The first launch does not open a packaged example or run anything automatically.
 Open `Camel/examples/programming_core.camel`, leave `count` at its recommended value of 6, and press **F5**. Result should contain Fibonacci **8** and sum-of-squares **91**. No model server is required.
 
 For agent examples, start LM Studio at `http://localhost:1234` and load the model named in the script. The endpoint field configures the next run; it is not a claim that a server is connected. `CAMEL_LM_TOKEN`, `LM_API_TOKEN`, model-specific environment variables, and `CAMEL_LM_TIMEOUT_SECONDS` are inherited by the worker. Studio does not display or store tokens.
+
+For a parallel multi-model workflow, start Ollama at `http://localhost:11434`, import and load two chat-capable models in Model Manager, and open `Camel/examples/multi_model_review.camel`. Set `CAMEL_ANALYST_MODEL` and `CAMEL_SKEPTIC_MODEL` to the installed Ollama model names, or edit the agent declarations. Each agent selects its own model and temperature; `spawn` starts both model requests before the workflow awaits their results. Ollama may queue or unload models when available memory is insufficient.
 
 For microphone notes, open `Camel/examples/audio_note_summarizer.camel`. `Main` records from the microphone; `FromFile` accepts existing audio. **Finish recording** sends Enter to a `record(0)` session; timed recording ends at the script's duration. **Stop** aborts the entire worker rather than returning partial audio. Liquid/LM Studio audio inference still depends on a server accepting `input_audio`; successful inference with those models has not been established here.
 
@@ -58,7 +61,7 @@ Saves stage content in the destination directory and replace the file after flus
 
 Exactly one hidden worker subprocess is owned by Studio. Repeated Run while active is ignored. Stop and application exit terminate/reap only that worker. They do **not** undo completed writes, unload models, terminate LM Studio, or cancel an inference request already accepted by the server. Program-level cancellation remains a language roadmap item. Workflows are trusted code, not an OS sandbox.
 
-Console retention is 2,000 lines (each displayed line capped at 16,384 characters), timeline retention is 2,000 operations, and individual worker protocol lines are limited to 1 MiB. This preview has no debugger, breakpoints, LSP completion, visual graph editor, extension marketplace, or model management UI.
+Console retention is 2,000 lines (each displayed line capped at 16,384 characters), timeline retention is 2,000 operations, and individual worker protocol lines are limited to 1 MiB. Hugging Face imports currently accept one GGUF file at a time; importing arbitrary Safetensors checkpoints, split GGUF sets, and model deletion are not included. Ollama's server controls how many concurrent requests fit in available memory. This preview has no debugger, breakpoints, LSP completion, visual graph editor, or extension marketplace.
 
 ## Verify and package
 

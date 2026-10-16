@@ -357,3 +357,29 @@ The user approved implementing the general-purpose agent language foundation. Ex
 - Current Discord references: Community Onboarding assigns channels/roles by answers and has a 7-default-channel / 5-public-send-channel enablement requirement; Forum Channels require Community enabled and fit longer topic discussions.
 - Plugin search for Discord community management returned no relevant Discord connector; an integration is unnecessary for planning only.
 
+
+## Camel Studio Hugging Face to Ollama importer — 2026-10-16
+
+- User authorized implementing the GGUF-first Hugging Face import flow on existing branch `Camel-Studio-Models` and confirmed the model downloads locally before Ollama registers/stores it.
+- Added Tools → Manage Models. It searches Hugging Face's model API for GGUF-tagged repositories, lists repository GGUF artifacts with available sizes, pins downloads to the selected revision, uses an in-memory optional HF token, streams one file to a temporary local file, computes SHA-256, sends the blob to the configured Ollama server, creates the local Ollama model, and refreshes the installed-model list. The imported model name is deterministic for repository/revision/file and displayed for use in Camel agent declarations.
+- Added a control to set the manager's Ollama endpoint as Studio's workflow endpoint for the next run. README documents Ollama local setup expectation and current one-file GGUF scope.
+- Current scope does not include model deletion, multi-shard GGUF import, general Safetensors conversion, explicit load/unload controls, or Studio UI for temperature/context/concurrency. Ollama may load an imported model on first inference.
+- `cargo check --locked --manifest-path .\\Camel-Language\\studio\\Cargo.toml` passed. `git diff --check` passed. No tests were run per instruction.
+
+## Camel Studio individual and multi-model controls — 2026-10-16
+
+- User expanded scope to include individual model control, loading multiple models, multi-model use cases in code, and using multiple agents/models in one workflow.
+- Model Manager now shows installed and running Ollama models, supports selecting and loading several together, setting context size per model at load time, and loading/unloading each model individually. Failed batch operations still refresh status so a partial load is reflected accurately.
+- Added `Camel/examples/multi_model_review.camel`: two independently configured agents use distinct model IDs and temperatures, start in parallel with `spawn`, and combine their structured results. README explains setup and memory-dependent Ollama behavior.
+- Temperature remains controlled per Camel agent declaration. Context is configured per model load in Studio; Ollama controls effective request concurrency based on server settings and available memory.
+- Verification: Studio `cargo check --locked` passed; `git diff --check` passed. No tests were run. No plugin was needed.
+
+## Studio model interface visibility — 2026-10-16
+
+- User reported not seeing the model interface. The manager was initially reachable only through Tools → Manage Models…; added a visible Models toolbar button too.
+- The prior action ran `cargo check`, which checks compilation but does not rebuild the launchable executable. Built the current release executable with `cargo build --release --locked --manifest-path .\\studio\\Cargo.toml` and the documented LLVM linker setting. It is at `studio/target/release/camel-studio.exe`.
+- A debug executable launch returned immediately in this tool session, so do not claim the new UI was visually confirmed. User can launch the rebuilt release binary directly; full Camel reinstall is unnecessary. If using an installed bundle/launcher, its Studio executable may need replacement or its configured path updated.
+- No relevant plugin was needed; `debug-it` and `run-it` skills were applied.
+- Follow-up found `camel` resolves to the per-user install at `%LOCALAPPDATA%/Programs/Camel/bin/camel.exe`; its sibling `camel-studio.exe` was an older Oct 13 build and takes precedence over repo output.
+- After the user saved and closed Studio, replaced the installed sibling with the verified release build and confirmed matching SHA-256. Removed the temporary backup and alias and cleared the user `CAMEL_STUDIO_PATH` override, so `camel --gui` now uses the standard sibling path with the new build. Full reinstall is unnecessary.
+- No process was force-closed. The installed executable was hash-verified; visual launch after replacement was not performed. No relevant plugin was needed; `debug-it` and `run-it` skills were applied.
