@@ -161,19 +161,13 @@ impl LibraryManager {
                                     "Update"
                                 };
                                 if ui
-                                    .add_enabled(
-                                        self.busy.is_none(),
-                                        egui::Button::new(action),
-                                    )
+                                    .add_enabled(self.busy.is_none(), egui::Button::new(action))
                                     .clicked()
                                 {
                                     self.install(library.clone());
                                 }
                                 if ui
-                                    .add_enabled(
-                                        self.busy.is_none(),
-                                        egui::Button::new("Remove"),
-                                    )
+                                    .add_enabled(self.busy.is_none(), egui::Button::new("Remove"))
                                     .clicked()
                                 {
                                     self.remove(library.name.clone());
@@ -196,7 +190,10 @@ impl LibraryManager {
             if let Some(message) = &self.message {
                 ui.label(message);
             } else {
-                ui.weak(format!("Libraries install under {}", install_root_display()));
+                ui.weak(format!(
+                    "Libraries install under {}",
+                    install_root_display()
+                ));
             }
         });
     }
@@ -235,7 +232,14 @@ impl LibraryManager {
             .name("studio-library-install".into())
             .spawn(move || {
                 let result = libraries::install(&library)
-                    .map(|path| format!("Installed {} {} at {}", library.name, library.version, path.display()))
+                    .map(|path| {
+                        format!(
+                            "Installed {} {} at {}",
+                            library.name,
+                            library.version,
+                            path.display()
+                        )
+                    })
                     .map_err(|error| error.to_string());
                 let _ = sender.send(Update::Operation(result));
             })
@@ -283,9 +287,11 @@ impl LibraryManager {
         self.updates = None;
         match update {
             Update::Catalog(Ok(catalog)) => {
-                if self.selected.as_ref().is_some_and(|name| {
-                    !catalog.libraries.iter().any(|item| &item.name == name)
-                }) {
+                if self
+                    .selected
+                    .as_ref()
+                    .is_some_and(|name| !catalog.libraries.iter().any(|item| &item.name == name))
+                {
                     self.selected = None;
                 }
                 self.catalog = Some(catalog);
@@ -294,7 +300,8 @@ impl LibraryManager {
             Update::Catalog(Err(error)) => self.message = Some(format!("Catalog error: {error}")),
             Update::Operation(result) => {
                 self.busy = None;
-                self.message = Some(result.unwrap_or_else(|error| format!("Library error: {error}")));
+                self.message =
+                    Some(result.unwrap_or_else(|error| format!("Library error: {error}")));
             }
         }
     }
@@ -312,10 +319,7 @@ fn installed_library(name: &str) -> Option<InstalledLibrary> {
         .and_then(|metadata| serde_json::from_slice::<Library>(&metadata).ok())
         .map(|library| library.version)
         .unwrap_or_else(|| "Unknown".into());
-    Some(InstalledLibrary {
-        version,
-        path,
-    })
+    Some(InstalledLibrary { version, path })
 }
 
 fn install_root_display() -> String {
