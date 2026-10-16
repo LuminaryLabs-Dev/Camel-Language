@@ -2,12 +2,12 @@ use crate::{
     document::{self, Document},
     editor,
     library_manager::LibraryManager,
+    model_manager::ModelManager,
     runner::{Runner, Update},
     worker::Message,
 };
 use camel_audio_runtime::language::{
-    analyze_buffer, AnalysisResult, CompiledProgram, Declaration, Diagnostic, Error,
-    ExecutionEvent,
+    analyze_buffer, AnalysisResult, CompiledProgram, Declaration, Diagnostic, Error, ExecutionEvent,
 };
 use eframe::egui::{self, Color32, FontId, Key, Modifiers, RichText};
 use std::{
@@ -183,6 +183,7 @@ pub struct Studio {
     output: OutputTab,
     endpoint: String,
     library_manager: LibraryManager,
+    model_manager: ModelManager,
     notice: Option<String>,
     pending: Option<Pending>,
     allow_close: bool,
@@ -223,6 +224,7 @@ impl Studio {
             endpoint: std::env::var("CAMEL_LM_ENDPOINT")
                 .unwrap_or_else(|_| "http://localhost:1234".into()),
             library_manager: LibraryManager::default(),
+            model_manager: ModelManager::default(),
             notice: None,
             pending: None,
             allow_close: false,
@@ -657,6 +659,10 @@ impl Studio {
                 }
             });
             ui.menu_button("Tools", |ui| {
+                if ui.button("Manage Models…").clicked() {
+                    self.model_manager.open();
+                    ui.close();
+                }
                 if ui.button("Manage Libraries…").clicked() {
                     self.library_manager.open();
                     ui.close();
@@ -679,6 +685,14 @@ impl Studio {
             }
             if ui.button("Save").clicked() {
                 *action = Some(Action::Save);
+            }
+            ui.separator();
+            if ui
+                .button("Models")
+                .on_hover_text("Search, import, load, and manage Ollama models")
+                .clicked()
+            {
+                self.model_manager.open();
             }
             ui.separator();
             if ui
@@ -1093,6 +1107,11 @@ impl Studio {
         }
         self.dialogs(ctx);
         self.library_manager.show(ctx);
+        self.model_manager.show(ctx);
+        if let Some(endpoint) = self.model_manager.take_endpoint_for_runs() {
+            self.endpoint = endpoint;
+            self.notice = Some("Ollama is selected for the next workflow run.".into());
+        }
         let tab = &self.tabs[self.active];
         let workflow_title = tab
             .doc
