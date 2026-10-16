@@ -19,6 +19,12 @@ fn binding_name(name: &str, site: &Site) -> Result<()> {
     }
 }
 
+fn type_error(site: &Site, message: impl Into<String>) -> Error {
+    let mut error = Error::at(site, message);
+    error.phase = DiagnosticPhase::Type;
+    error
+}
+
 /// Collect independent declaration-level diagnostics without stopping at the
 /// first invalid declaration. A declaration still stops at its first error
 /// to avoid cascades; later declarations are checked against the full program.
@@ -33,6 +39,10 @@ pub(super) fn check_diagnostics(p: &Program) -> Vec<(Error, &'static str)> {
                     file: "<source>".into(),
                     line: 1,
                     column: 1,
+                    offset: 0,
+                    end_line: 1,
+                    end_column: 1,
+                    end_offset: 0,
                 }),
                 format!(
                     "unsupported Camel language version '{version}'; this runtime supports '{LANGUAGE_VERSION}'"
@@ -79,7 +89,7 @@ pub(super) fn check_diagnostics(p: &Program) -> Vec<(Error, &'static str)> {
             }
             if *t == Type::named("void") {
                 diagnostics.push((
-                    Error::at(&p.sites[name], "record field cannot be void"),
+                    type_error(&p.sites[name], "record field cannot be void"),
                     CHECK_CODE,
                 ));
                 continue;
@@ -203,7 +213,7 @@ impl Checker<'_> {
             Type::Task(t) => self.ty(t, site),
             Type::Array(t) => {
                 if *t.as_ref() == Type::named("void") {
-                    return Err(Error::at(site, "void cannot be an element type"));
+                    return Err(type_error(site, "void cannot be an element type"));
                 }
                 self.ty(t, site)
             }
@@ -227,7 +237,7 @@ impl Checker<'_> {
             {
                 Ok(())
             }
-            _ => Err(Error::at(site, format!("unknown type '{t}'"))),
+            _ => Err(type_error(site, format!("unknown type '{t}'"))),
         }
     }
     fn params(&self, params: &[Param], site: &Site) -> Result<BTreeSet<String>> {
@@ -237,7 +247,7 @@ impl Checker<'_> {
             binding_name(&p.name, site)?;
             self.ty(&p.ty, site)?;
             if p.ty == Type::named("void") {
-                return Err(Error::at(site, "parameter cannot be void"));
+                return Err(type_error(site, "parameter cannot be void"));
             }
             if !scope.insert(p.name.clone()) {
                 return Err(Error::at(site, format!("duplicate parameter '{}'", p.name)));
@@ -366,7 +376,7 @@ impl Checker<'_> {
                 if let Some(t) = t {
                     self.ty(t, &s.site)?;
                     if *t == Type::named("void") {
-                        return Err(Error::at(&s.site, "variable cannot be void"));
+                        return Err(type_error(&s.site, "variable cannot be void"));
                     }
                 }
                 if !scopes.last_mut().unwrap().insert(n.clone()) {

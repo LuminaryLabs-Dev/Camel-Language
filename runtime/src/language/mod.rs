@@ -5,6 +5,7 @@ mod eval;
 mod host;
 mod inspect;
 mod lexer;
+mod lint;
 mod parser;
 mod static_types;
 mod syntax;
@@ -19,7 +20,7 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-pub use syntax::{Diagnostic, Error, RelatedInformation, Result, Severity, Site, SourceSpan, Type};
+pub use syntax::{Diagnostic, DiagnosticPhase, Error, RelatedInformation, Result, Severity, Site, SourceSpan, Type};
 pub use value::Value;
 
 /// Maximum UTF-8 source bytes accepted for one Camel file.
@@ -37,23 +38,24 @@ impl CompiledProgram {
     pub(super) fn compile_source_with_diagnostics(
         name: &str,
         source: &str,
-    ) -> std::result::Result<Self, Vec<Diagnostic>> {
+    ) -> std::result::Result<(Self, Vec<Diagnostic>), Vec<Diagnostic>> {
         let p = parser::parse(name, source)
-            .map_err(|error| vec![Diagnostic::from_error("CAMEL-SYNTAX-001", error)])?;
+            .map_err(|error| vec![Diagnostic::from_error("CAMEL-SYNTAX-001", DiagnosticPhase::Syntax, error)])?;
         if !p.imports.is_empty() {
             return Err(vec![Diagnostic::from_error(
                 "CAMEL-IMPORT-001",
+                DiagnosticPhase::Analysis,
                 Error::at(&p.imports[0].1, "use load() to resolve imports"),
             )]);
         }
-        let diagnostics = checked_diagnostics(&p);
-        if !diagnostics.is_empty() {
+        let mut diagnostics = checked_diagnostics(&p);
+        if diagnostics.is_empty() {
+            diagnostics.extend(lint::analyze(&p));
+        }
+        if diagnostics.iter().any(|d| d.severity == Severity::Error) {
             return Err(diagnostics);
         }
-        Ok(Self {
-            program: Arc::new(p),
-            root: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
-        })
+        Ok((Self { program: Arc::new(p), root: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")) }, diagnostics))
     }
     pub fn load(path: impl AsRef<Path>) -> Result<Self> {
         analyze_file(path).into_program()
@@ -65,12 +67,16 @@ impl CompiledProgram {
     pub(super) fn compile_path_with_diagnostics(
         path: impl AsRef<Path>,
         source: Option<&str>,
-    ) -> std::result::Result<Self, Vec<Diagnostic>> {
+    ) -> std::result::Result<(Self, Vec<Diagnostic>), Vec<Diagnostic>> {
         let path = path.as_ref();
         let site = Site {
             file: path.display().to_string(),
             line: 1,
             column: 1,
+            offset: 0,
+            end_line: 1,
+            end_column: 1,
+            end_offset: 0,
         };
         let entry = if source.is_some() {
             let parent = path
@@ -81,12 +87,14 @@ impl CompiledProgram {
                 .map_err(|e| {
                     vec![Diagnostic::from_error(
                         "CAMEL-ANALYSIS-001",
+                        DiagnosticPhase::Analysis,
                         Error::at(&site, e.to_string()),
                     )]
                 })?;
             let entry = parent.join(path.file_name().ok_or_else(|| {
                 vec![Diagnostic::from_error(
                     "CAMEL-ANALYSIS-001",
+                    DiagnosticPhase::Analysis,
                     Error::at(&site, "missing filename"),
                 )]
             })?);
@@ -94,6 +102,7 @@ impl CompiledProgram {
                 entry.canonicalize().map_err(|e| {
                     vec![Diagnostic::from_error(
                         "CAMEL-ANALYSIS-001",
+                        DiagnosticPhase::Analysis,
                         Error::at(&site, e.to_string()),
                     )]
                 })?
@@ -104,6 +113,7 @@ impl CompiledProgram {
             path.canonicalize().map_err(|e| {
                 vec![Diagnostic::from_error(
                     "CAMEL-ANALYSIS-001",
+                    DiagnosticPhase::Analysis,
                     Error::at(&site, e.to_string()),
                 )]
             })?
@@ -117,15 +127,19 @@ impl CompiledProgram {
             &site,
             source,
         )
-        .map_err(|error| vec![Diagnostic::from_error("CAMEL-ANALYSIS-001", error)])?;
-        let diagnostics = checked_diagnostics(&merged);
-        if !diagnostics.is_empty() {
+        .map_err(|error| {
+            let phase = error.phase;
+            let code = if phase == DiagnosticPhase::Syntax { "CAMEL-SYNTAX-001" } else { "CAMEL-ANALYSIS-001" };
+            vec![Diagnostic::from_error(code, phase, error)]
+        })?;
+        let mut diagnostics = checked_diagnostics(&merged);
+        if diagnostics.is_empty() {
+            diagnostics.extend(lint::analyze(&merged));
+        }
+        if diagnostics.iter().any(|d| d.severity == Severity::Error) {
             return Err(diagnostics);
         }
-        Ok(Self {
-            program: Arc::new(merged),
-            root: entry.parent().unwrap().to_path_buf(),
-        })
+        Ok((Self { program: Arc::new(merged), root: entry.parent().unwrap().to_path_buf() }, diagnostics))
     }
     pub fn parse_arguments(&self, entry: &str, raw: &[String]) -> Result<Vec<Value>> {
         let params = self.entry_parameters(entry)?;
@@ -165,6 +179,10 @@ impl CompiledProgram {
                     file: self.root.display().to_string(),
                     line: 1,
                     column: 1,
+                    offset: 0,
+                    end_line: 1,
+                    end_column: 1,
+                    end_offset: 0,
                 },
                 format!("missing workflow '{name}'"),
             )
@@ -186,7 +204,16 @@ impl CompiledProgram {
 fn checked_diagnostics(program: &syntax::Program) -> Vec<Diagnostic> {
     check::check_diagnostics(program)
         .into_iter()
-        .map(|(error, code)| Diagnostic::from_error(code, error))
+        .map(|(error, code)| {
+            let (code, phase) = if error.phase == DiagnosticPhase::Type {
+                ("CAMEL-TYPE-002", DiagnosticPhase::Type)
+            } else if code.starts_with("CAMEL-TYPE-") {
+                (code, DiagnosticPhase::Type)
+            } else {
+                (code, DiagnosticPhase::Analysis)
+            };
+            Diagnostic::from_error(code, phase, error)
+        })
         .collect()
 }
 
@@ -210,6 +237,7 @@ fn load_module(
     if loaded.contains(path) {
         return Ok(());
     }
+    let imported_module = !active.is_empty();
     active.insert(path.into());
     let text = match source {
         Some(s) => s.to_owned(),
@@ -258,6 +286,9 @@ fn load_module(
                 format!("duplicate imported declaration '{name}'"),
             ));
         }
+    }
+    if imported_module {
+        merged.imported_names.extend(p.sites.keys().cloned());
     }
     merged.sites.extend(p.sites);
     merged.functions.extend(p.functions);

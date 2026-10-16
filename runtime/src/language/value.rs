@@ -95,6 +95,10 @@ impl Value {
                     file: "value".into(),
                     line: 1,
                     column: 1,
+                    offset: 0,
+                    end_line: 1,
+                    end_column: 1,
+                    end_offset: 0,
                 })
                 .map(|v| v.to_string())
                 .unwrap_or_else(|_| "<value>".into()),

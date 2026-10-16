@@ -5,12 +5,19 @@ use super::{
 use std::collections::BTreeMap;
 
 pub fn parse(file: &str, source: &str) -> Result<Program> {
+    let tokens = lex(file, source).map_err(|mut error| {
+        error.phase = DiagnosticPhase::Syntax;
+        error
+    })?;
     Parser {
-        tokens: lex(file, source)?,
+        tokens,
         i: 0,
         depth: 0,
     }
-    .program()
+    .program().map_err(|mut error| {
+        error.phase = DiagnosticPhase::Syntax;
+        error
+    })
 }
 struct Parser {
     tokens: Vec<Token>,
@@ -85,12 +92,13 @@ impl Parser {
             loop {
                 let ty = self.ty()?;
                 let name = self.word()?;
+                let site = self.tokens[self.i - 1].site.clone();
                 let default = if self.eat("=") {
                     Some(self.expr(0)?)
                 } else {
                     None
                 };
-                out.push(Param { name, ty, default });
+                out.push(Param { name, ty, site, default });
                 if self.eat(")") {
                     break;
                 }
@@ -167,7 +175,8 @@ impl Parser {
                 let t = self.ty()?;
                 (self.word()?, t)
             };
-            if p.sites.insert(name.clone(), site.clone()).is_some() {
+            let binding_site = self.tokens[self.i - 1].site.clone();
+            if p.sites.insert(name.clone(), binding_site).is_some() {
                 return Err(Error::at(&site, format!("duplicate declaration '{name}'")));
             }
             match flavor {
@@ -252,7 +261,7 @@ impl Parser {
         result
     }
     fn statement_inner(&mut self) -> Result<Stmt> {
-        let site = self.site();
+        let mut site = self.site();
         let kind = if self.is("{") {
             return self.block();
         } else if self.eat("if") {
@@ -283,6 +292,7 @@ impl Parser {
                 Some(self.ty()?)
             };
             let name = self.word()?;
+            site = self.tokens[self.i - 1].site.clone();
             self.need("in")?;
             let e = self.expr(0)?;
             self.need(")")?;
@@ -330,7 +340,7 @@ impl Parser {
         Ok(Stmt { kind, site })
     }
     fn simple(&mut self, semicolon: bool) -> Result<Stmt> {
-        let site = self.site();
+        let mut site = self.site();
         let saved = self.i;
         let declaration = if self.eat("var") {
             Some(None)
@@ -350,6 +360,7 @@ impl Parser {
         };
         let kind = if let Some(ty) = declaration {
             let name = self.word()?;
+            site = self.tokens[self.i - 1].site.clone();
             self.need("=")?;
             StmtKind::Let(name, ty, self.expr(0)?)
         } else {

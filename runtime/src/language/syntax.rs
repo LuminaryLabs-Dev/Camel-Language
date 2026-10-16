@@ -5,6 +5,16 @@ pub struct Site {
     pub file: String,
     pub line: usize,
     pub column: usize,
+    /// UTF-8 byte offset of the token start.
+    #[serde(default)]
+    pub offset: usize,
+    /// End position of the token, exclusive. Legacy sites use zero here.
+    #[serde(default)]
+    pub end_line: usize,
+    #[serde(default)]
+    pub end_column: usize,
+    #[serde(default)]
+    pub end_offset: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -14,9 +24,19 @@ pub enum Severity {
     Information,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum DiagnosticPhase {
+    Syntax,
+    #[default]
+    Analysis,
+    Type,
+    Lint,
+    Runtime,
+}
+
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct SourceSpan {
-    /// Current parser/checker diagnostics use point spans at the reported site.
+    /// Source positions are one-based; offsets are UTF-8 byte indices.
     pub start: Site,
     pub end: Site,
 }
@@ -31,6 +51,8 @@ pub struct RelatedInformation {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Diagnostic {
     pub severity: Severity,
+    #[serde(default)]
+    pub phase: DiagnosticPhase,
     pub code: String,
     pub message: String,
     pub primary_span: SourceSpan,
@@ -39,19 +61,43 @@ pub struct Diagnostic {
 }
 
 impl Diagnostic {
-    pub fn from_error(code: impl Into<String>, error: Error) -> Self {
+    pub fn from_error(code: impl Into<String>, phase: DiagnosticPhase, error: Error) -> Self {
         let site = error.site;
+        let end = Site {
+            file: site.file.clone(),
+            line: if site.end_line == 0 { site.line } else { site.end_line },
+            column: if site.end_column == 0 { site.column } else { site.end_column },
+            offset: site.end_offset.max(site.offset),
+            end_line: if site.end_line == 0 { site.line } else { site.end_line },
+            end_column: if site.end_column == 0 { site.column } else { site.end_column },
+            end_offset: site.end_offset.max(site.offset),
+        };
+        let phase = phase;
         Self {
             severity: Severity::Error,
+            phase,
             code: code.into(),
             message: error.message,
             primary_span: SourceSpan {
-                start: site.clone(),
-                end: site,
+                start: site,
+                end,
             },
             related: Vec::new(),
             help: None,
         }
+    }
+
+    pub fn warning(code: impl Into<String>, phase: DiagnosticPhase, site: Site, message: impl Into<String>) -> Self {
+        let end = Site {
+            file: site.file.clone(),
+            line: if site.end_line == 0 { site.line } else { site.end_line },
+            column: if site.end_column == 0 { site.column } else { site.end_column },
+            offset: site.end_offset.max(site.offset),
+            end_line: if site.end_line == 0 { site.line } else { site.end_line },
+            end_column: if site.end_column == 0 { site.column } else { site.end_column },
+            end_offset: site.end_offset.max(site.offset),
+        };
+        Self { severity: Severity::Warning, phase, code: code.into(), message: message.into(), primary_span: SourceSpan { start: site, end }, related: Vec::new(), help: None }
     }
 
     pub fn to_error(&self) -> Error {
@@ -64,8 +110,14 @@ impl std::fmt::Display for Diagnostic {
         let site = &self.primary_span.start;
         write!(
             f,
-            "{}:{}:{}: [{}] {}",
-            site.file, site.line, site.column, self.code, self.message
+            "{}:{}:{}: [{:?} {:?} {}] {}",
+            site.file,
+            site.line,
+            site.column,
+            self.severity,
+            self.phase,
+            self.code,
+            self.message
         )
     }
 }
@@ -75,6 +127,8 @@ pub struct Error {
     pub message: String,
     pub site: Site,
     pub fatal: bool,
+    #[serde(default)]
+    pub phase: DiagnosticPhase,
 }
 impl Error {
     pub fn at(site: &Site, message: impl Into<String>) -> Self {
@@ -82,6 +136,7 @@ impl Error {
             message: message.into(),
             site: site.clone(),
             fatal: false,
+            phase: DiagnosticPhase::Analysis,
         }
     }
 }
@@ -165,6 +220,7 @@ pub enum StmtKind {
 pub struct Param {
     pub name: String,
     pub ty: Type,
+    pub site: Site,
     pub default: Option<Expr>,
 }
 #[derive(Clone, Debug)]
@@ -191,5 +247,6 @@ pub struct Program {
     pub policies: BTreeMap<String, BTreeMap<String, Expr>>,
     pub tools: BTreeMap<String, Tool>,
     pub imports: Vec<(String, Site)>,
+    pub imported_names: std::collections::BTreeSet<String>,
     pub sites: BTreeMap<String, Site>,
 }

@@ -357,3 +357,28 @@ The user approved implementing the general-purpose agent language foundation. Ex
 - Current Discord references: Community Onboarding assigns channels/roles by answers and has a 7-default-channel / 5-public-send-channel enablement requirement; Forum Channels require Community enabled and fit longer topic discussions.
 - Plugin search for Discord community management returned no relevant Discord connector; an integration is unnecessary for planning only.
 
+
+## Camel diagnostic push-readiness review — 2026-10-16
+
+- User asked whether the current structured diagnostic, lint, and Studio changes are ready to push; explicitly said not to push. No push was performed.
+- `git diff --check` passes. Prior `cargo check --locked` runs for runtime and Studio passed. No test suite was run for this latest set of changes.
+- Push blockers identified: `stable_check_code` assigns public codes by matching human-readable diagnostic messages, so wording edits can silently change codes or fall back to `CAMEL-CHECK-099`; lint implementation has no focused tests; lint name-use analysis is global rather than scope-resolved, so shadowing/name reuse can misattribute unused warnings.
+- Additional review note: Studio Problems currently displays the latest runtime error regardless of which editor tab is active, while source highlighting filters runtime diagnostics to the active file. Consider associating runtime diagnostics with the relevant run/tab or clarifying this presentation.
+- Recommendation: do not push as the stable-code and lint behavior claims are not adequately guarded; add rule-owned codes and focused tests, then rerun runtime and Studio suites. No external plugin is needed for this repository review.
+
+## Diagnostic reliability follow-up — 2026-10-16
+
+- User asked to tighten the three push-readiness findings; no push was requested or performed.
+- Removed message-text-based diagnostic code inference and `CAMEL-CHECK-099`. Checker diagnostics now retain explicit check/type codes; type validation errors carry the type phase and stable `CAMEL-TYPE-002` code. Regression coverage confirms distinct semantic messages retain `CAMEL-CHECK-001`, static mismatches retain `CAMEL-TYPE-001`, and unknown types receive `CAMEL-TYPE-002`.
+- Reworked unused-name analysis to resolve references against lexical scopes and unique binding identities. Nested shadowed variables no longer make an outer binding appear used; writes alone do not count as reads. Tests confirm warnings remain nonblocking.
+- Runtime Problems now retain the originating workflow file and only display the last runtime diagnostic in that file's tab. A Studio unit test covers matching, nonmatching, and absent active-file cases.
+- Verification: all 10 `runtime/tests/studio_api.rs` tests pass; all 8 Studio library tests pass; changed linter, test, and Studio files pass direct rustfmt checks; `git diff --check` passes. Full runtime suite cannot complete because `excessive_parser_nesting_returns_an_error` reproducibly stack-overflows; excluding that test, a later full run hit an MSVC linker internal crash. Full Studio package run also hit an MSVC linker LNK1223 error, though all Studio library tests pass. These are verification limitations, not attributed to the changed diagnostics code.
+- Plugin search was unnecessary for local Rust implementation. Skills applied: `atomize-it` and `camel-agent-programming`.
+
+## Camel Discord channel setup guide — 2026-10-16
+
+- User asked for setup instructions for each proposed Camel Discord channel, beginning with #start-here; this remains guidance, not authorization to create or modify a Discord server.
+- Tailor channel content to the current Camel 0.2 preview: general-purpose agent programming language, CLI/runtime, native Studio, workflow help, and source libraries. Use the current installation and language-spec documents as references.
+- The canonical installation guide explicitly says distribution sharing remains private until public access is authorized. Welcome and getting-started copy must not promise a public download; point only to an authorized route.
+- Recommend read-only orientation/announcement channels, focused learner and builder support, forums for durable help/proposals/bugs, and filtered GitHub notifications. Discord Community Onboarding routes channels/roles; Forums require Community enabled.
+

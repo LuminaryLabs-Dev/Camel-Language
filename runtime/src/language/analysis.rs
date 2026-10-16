@@ -9,12 +9,12 @@ pub struct AnalysisResult {
 }
 
 impl AnalysisResult {
-    fn from_result(result: std::result::Result<CompiledProgram, Vec<Diagnostic>>) -> Self {
+    fn from_result(result: std::result::Result<(CompiledProgram, Vec<Diagnostic>), Vec<Diagnostic>>) -> Self {
         match result {
-            Ok(program) => Self {
+            Ok((program, diagnostics)) => Self {
                 declarations: program.declarations(),
                 program: Some(program),
-                diagnostics: Vec::new(),
+                diagnostics,
             },
             Err(diagnostics) => Self {
                 program: None,
@@ -37,11 +37,12 @@ impl AnalysisResult {
     }
 
     pub fn is_valid(&self) -> bool {
-        self.program.is_some() && self.diagnostics.is_empty()
+        self.program.is_some() && !self.diagnostics.iter().any(|d| d.severity == super::Severity::Error)
     }
 
     pub fn into_program(self) -> Result<CompiledProgram> {
-        match (self.program, self.diagnostics.into_iter().next()) {
+        let error = self.diagnostics.into_iter().find(|d| d.severity == super::Severity::Error);
+        match (self.program, error) {
             (Some(program), _) => Ok(program),
             (None, Some(diagnostic)) => Err(diagnostic.to_error()),
             (None, None) => Err(Error::at(
@@ -49,6 +50,10 @@ impl AnalysisResult {
                     file: "<analysis>".into(),
                     line: 1,
                     column: 1,
+                    offset: 0,
+                    end_line: 1,
+                    end_column: 1,
+                    end_offset: 0,
                 },
                 "analysis produced neither a program nor a diagnostic",
             )),
