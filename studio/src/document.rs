@@ -110,8 +110,8 @@ pub fn scripts(root: &Path) -> Vec<PathBuf> {
     // Installed project examples and the standard library are implementation
     // payload, not the user's editable project. Keep the editor inventory scoped
     // to user scripts while leaving explicit Open available for any file.
-    let has_distributable_sources = root.join("Camel/examples").is_dir()
-        && root.join("libraries/index.json").is_file();
+    let has_distributable_sources =
+        root.join("Camel/examples").is_dir() && root.join("libraries/index.json").is_file();
     fn visit(
         root: &Path,
         project_root: &Path,
@@ -149,7 +149,13 @@ pub fn scripts(root: &Path) -> Vec<PathBuf> {
                 if ![".git", "target", "dist", "node_modules", ".codex"]
                     .contains(&name.to_string_lossy().as_ref())
                 {
-                    visit(&path, project_root, has_distributable_sources, out, depth + 1);
+                    visit(
+                        &path,
+                        project_root,
+                        has_distributable_sources,
+                        out,
+                        depth + 1,
+                    );
                 }
             } else if path.extension().is_some_and(|e| e == "camel") {
                 out.push(path);

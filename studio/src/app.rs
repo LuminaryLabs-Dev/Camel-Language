@@ -2,12 +2,12 @@ use crate::{
     document::{self, Document},
     editor,
     library_manager::LibraryManager,
+    model_manager::ModelManager,
     runner::{Runner, Update},
     worker::Message,
 };
 use camel_audio_runtime::language::{
-    analyze_buffer, AnalysisResult, CompiledProgram, Declaration, Diagnostic, DiagnosticPhase,
-    Error, ExecutionEvent, Severity,
+    analyze_buffer, AnalysisResult, CompiledProgram, Declaration, Diagnostic, Error, ExecutionEvent,
 };
 use eframe::egui::{self, Color32, FontId, Key, Modifiers, RichText};
 use std::{
@@ -165,31 +165,6 @@ struct Row {
     started: Instant,
     outcome: Option<(bool, u64)>,
 }
-struct RuntimeDiagnostic {
-    run_file: PathBuf,
-    error: Error,
-}
-
-impl RuntimeDiagnostic {
-    fn belongs_to(&self, file: &Path) -> bool {
-        canonical_path(&self.run_file) == canonical_path(file)
-    }
-}
-
-fn canonical_path(path: &Path) -> PathBuf {
-    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
-}
-
-fn runtime_error_for_file<'a>(
-    diagnostic: Option<&'a RuntimeDiagnostic>,
-    file: Option<&Path>,
-) -> Option<&'a Error> {
-    let file = file?;
-    diagnostic
-        .filter(|diagnostic| diagnostic.belongs_to(file))
-        .map(|diagnostic| &diagnostic.error)
-}
-
 pub struct Studio {
     #[cfg(feature = "capture")]
     capture: crate::capture::Capture,
@@ -202,13 +177,13 @@ pub struct Studio {
     rows: Vec<Row>,
     console: VecDeque<String>,
     result: Option<String>,
-    run_error: Option<RuntimeDiagnostic>,
-    last_run_file: Option<PathBuf>,
+    run_error: Option<Error>,
     run_name: String,
     run_status: String,
     output: OutputTab,
     endpoint: String,
     library_manager: LibraryManager,
+    model_manager: ModelManager,
     notice: Option<String>,
     pending: Option<Pending>,
     allow_close: bool,
@@ -243,13 +218,13 @@ impl Studio {
             console: VecDeque::new(),
             result: None,
             run_error: None,
-            last_run_file: None,
             run_name: "No run yet".into(),
             run_status: "Ready".into(),
             output: OutputTab::Timeline,
             endpoint: std::env::var("CAMEL_LM_ENDPOINT")
                 .unwrap_or_else(|_| "http://localhost:1234".into()),
             library_manager: LibraryManager::default(),
+            model_manager: ModelManager::default(),
             notice: None,
             pending: None,
             allow_close: false,
@@ -321,11 +296,7 @@ impl Studio {
                             tab.checked = Some(revision);
                             tab.analysis = result.declarations().to_vec();
                             tab.diagnostics = result.diagnostics().to_vec();
-                            tab.error = tab
-                                .diagnostics
-                                .iter()
-                                .find(|d| d.severity == Severity::Error)
-                                .map(Diagnostic::to_error);
+                            tab.error = tab.diagnostics.first().map(Diagnostic::to_error);
                             if tab.error.is_none() && result.is_valid() {
                                 let name = if tab
                                     .analysis
@@ -443,7 +414,6 @@ impl Studio {
                 self.console.clear();
                 self.result = None;
                 self.run_error = None;
-                self.last_run_file = Some(path.clone());
                 let workflow_file = tab
                     .doc
                     .path
@@ -517,9 +487,7 @@ impl Studio {
                         }
                         Update::Message(Message::Diagnostic { error }) => {
                             self.push_console(error.to_string());
-                            if let Some(run_file) = self.last_run_file.clone() {
-                                self.run_error = Some(RuntimeDiagnostic { run_file, error });
-                            }
+                            self.run_error = Some(error);
                         }
                         Update::Console(text) => self.push_console(text),
                         Update::Closed => {}
@@ -691,6 +659,10 @@ impl Studio {
                 }
             });
             ui.menu_button("Tools", |ui| {
+                if ui.button("Manage Models…").clicked() {
+                    self.model_manager.open();
+                    ui.close();
+                }
                 if ui.button("Manage Libraries…").clicked() {
                     self.library_manager.open();
                     ui.close();
@@ -713,6 +685,14 @@ impl Studio {
             }
             if ui.button("Save").clicked() {
                 *action = Some(Action::Save);
+            }
+            ui.separator();
+            if ui
+                .button("Models")
+                .on_hover_text("Search, import, load, and manage Ollama models")
+                .clicked()
+            {
+                self.model_manager.open();
             }
             ui.separator();
             if ui
@@ -799,8 +779,7 @@ impl Studio {
                         .file_stem()
                         .unwrap_or_default()
                         .to_string_lossy()
-                        .replace('_', " ")
-                        .replace('-', " ");
+                        .replace(['_', '-'], " ");
                     if ui
                         .selectable_label(selected, RichText::new(label).size(12.0))
                         .clicked()
@@ -837,7 +816,7 @@ impl Studio {
             egui::ComboBox::from_id_salt("workflow").width(ui.available_width()-12.0).selected_text(if selected.is_empty(){"No workflow"}else{&selected}).show_ui(ui,|ui|{for name in &names{ui.selectable_value(&mut selected,name.clone(),name);}});
             if selected!=tab.workflow{tab.select_workflow(selected);}
             for a in &mut tab.arguments {
-                ui.horizontal(|ui|{ui.label(&a.name);ui.weak(&display_type(&a.ty));});
+                ui.horizontal(|ui|{ui.label(&a.name);ui.weak(display_type(&a.ty));});
                 ui.checkbox(&mut a.use_default,"Use default input");
                 if !a.use_default {
                     ui.add(egui::TextEdit::singleline(&mut a.text).desired_width(f32::INFINITY).hint_text(if a.ty=="string"{"Enter text"}else{"Enter a value"}));
@@ -863,7 +842,6 @@ impl Studio {
         });
     }
     fn output(&mut self, ui: &mut egui::Ui) {
-        let mut source_target: Option<(PathBuf, usize, usize)> = None;
         ui.horizontal(|ui| {
             for (name, tab) in [
                 ("Timeline", OutputTab::Timeline),
@@ -897,57 +875,34 @@ impl Studio {
             OutputTab::Result=>if let Some(result)=&self.result {let mut text=result.clone();ui.add(egui::TextEdit::multiline(&mut text).font(FontId::monospace(12.0)).desired_width(f32::INFINITY).interactive(false).frame(false));if ui.button("Copy JSON").clicked(){ui.ctx().copy_text(result.clone());}}else{ui.weak("The completed workflow's return value appears here as JSON.");},
             OutputTab::Problems=>{
                 let tab=&self.tabs[self.active];
-                for phase in [DiagnosticPhase::Syntax, DiagnosticPhase::Analysis, DiagnosticPhase::Type, DiagnosticPhase::Lint] {
-                    let diagnostics = tab.diagnostics.iter().filter(|d| d.phase == phase).collect::<Vec<_>>();
-                    if diagnostics.is_empty() { continue; }
-                    ui.label(RichText::new(format!("{} ({})", phase_name(phase), diagnostics.len())).strong());
-                    for diagnostic in diagnostics {
+                if !tab.diagnostics.is_empty() {
+                    ui.label(RichText::new("Current script").strong());
+                    for diagnostic in &tab.diagnostics {
                         let site = &diagnostic.primary_span.start;
-                        ui.horizontal(|ui| {
-                            if ui.small_button(format!("{}  {}:{}:{}", diagnostic.code, site.file, site.line, site.column)).clicked() {
-                                source_target = Some((PathBuf::from(&site.file), site.line, site.column));
-                            }
-                            ui.colored_label(if diagnostic.severity == Severity::Error { Color32::from_rgb(160, 64, 46) } else { Color32::from_rgb(145, 104, 20) }, format!("{:?}", diagnostic.severity));
-                        });
-                        ui.label(&diagnostic.message);
-                        if let Some(help) = &diagnostic.help { ui.weak(help); }
+                        ui.label(format!(
+                            "{:?} [{}]  {}:{}:{}: {}",
+                            diagnostic.severity,
+                            diagnostic.code,
+                            site.file,
+                            site.line,
+                            site.column,
+                            diagnostic.message
+                        ));
+                        if let Some(help) = &diagnostic.help {
+                            ui.weak(help);
+                        }
                     }
-                }
-                if tab.diagnostics.is_empty() && tab.checked==Some(tab.revision) {
+                } else if tab.checked==Some(tab.revision) {
                     ui.label("Workflow is ready to run.");
-                } else if tab.checked != Some(tab.revision) && tab.error.is_none() {
+                } else if tab.error.is_none() {
                     ui.weak("Preparing workflow…");
                 }
-                if let Some(error) = runtime_error_for_file(
-                    self.run_error.as_ref(),
-                    tab.doc.path.as_deref(),
-                ) {
-                    ui.label(RichText::new("Runtime").strong());
-                    ui.horizontal(|ui| {
-                        if ui.small_button(format!("CAMEL-RUNTIME-001  {}:{}:{}", error.site.file, error.site.line, error.site.column)).clicked() {
-                            source_target = Some((PathBuf::from(&error.site.file), error.site.line, error.site.column));
-                        }
-                        ui.colored_label(Color32::from_rgb(160, 64, 46), "Error");
-                    });
-                    ui.label(&error.message);
+                if self.run_error.is_some() {
+                    ui.label(RichText::new("Last run").strong());
+                    ui.label("Needs attention. Review the selected workflow and try again.");
                 }
             },
         }});
-        if let Some((path, line, column)) = source_target {
-            let canonical_target = path.canonicalize().unwrap_or_else(|_| path.clone());
-            if let Some(index) = self.tabs.iter().position(|tab| {
-                tab.doc.path.as_ref().is_some_and(|p| {
-                    p.canonicalize().unwrap_or_else(|_| p.clone()) == canonical_target
-                })
-            }) {
-                self.active = index;
-            } else if path.exists() {
-                self.open(&path);
-            }
-            if let Some(tab) = self.tabs.get_mut(self.active) {
-                tab.jump = Some((line, column));
-            }
-        }
     }
     fn center(&mut self, ui: &mut egui::Ui, action: &mut Option<Action>) {
         self.source_editor(ui, action);
@@ -1015,48 +970,12 @@ impl Studio {
             }
             ui.separator();
         }
-        let active_file = self.tabs[self.active]
-            .doc
-            .path
-            .as_ref()
-            .map(|path| path.canonicalize().unwrap_or_else(|_| path.clone()));
-        let active_file = active_file.or_else(|| Some(self.root.join("Untitled.camel")));
-        let mut editor_diagnostics = self.tabs[self.active]
-            .diagnostics
-            .iter()
-            .filter(|diagnostic| {
-                let path = PathBuf::from(&diagnostic.primary_span.start.file);
-                active_file
-                    .as_ref()
-                    .is_some_and(|active| path.canonicalize().unwrap_or(path) == *active)
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-        if let Some(error) = self
-            .run_error
-            .as_ref()
-            .map(|diagnostic| diagnostic.error.clone())
-        {
-            if active_file.as_ref().is_some_and(|active| {
-                Path::new(&error.site.file)
-                    .canonicalize()
-                    .unwrap_or_else(|_| PathBuf::from(&error.site.file))
-                    == *active
-            }) {
-                editor_diagnostics.push(Diagnostic::from_error(
-                    "CAMEL-RUNTIME-001",
-                    DiagnosticPhase::Runtime,
-                    error,
-                ));
-            }
-        }
         let tab = &mut self.tabs[self.active];
         let (changed, cursor) = editor::show(
             ui,
             &mut tab.doc.text,
             egui::Id::new(("editor", tab.id)),
             tab.jump.take(),
-            &editor_diagnostics,
         );
         tab.cursor = cursor;
         if changed {
@@ -1187,6 +1106,11 @@ impl Studio {
         }
         self.dialogs(ctx);
         self.library_manager.show(ctx);
+        self.model_manager.show(ctx);
+        if let Some(endpoint) = self.model_manager.take_endpoint_for_runs() {
+            self.endpoint = endpoint;
+            self.notice = Some("Ollama is selected for the next workflow run.".into());
+        }
         let tab = &self.tabs[self.active];
         let workflow_title = tab
             .doc
@@ -1270,15 +1194,6 @@ fn display_type(ty: &str) -> String {
         _ => "Structured value".into(),
     }
 }
-fn phase_name(phase: DiagnosticPhase) -> &'static str {
-    match phase {
-        DiagnosticPhase::Syntax => "Syntax",
-        DiagnosticPhase::Analysis => "Analysis",
-        DiagnosticPhase::Type => "Types",
-        DiagnosticPhase::Lint => "Lint",
-        DiagnosticPhase::Runtime => "Runtime",
-    }
-}
 fn display_detail_name(name: &str) -> &str {
     match name {
         "model" => "Model",
@@ -1322,7 +1237,7 @@ fn configure(ctx: &egui::Context) {
     style.visuals.panel_fill = Color32::from_rgb(245, 246, 248);
     style.visuals.window_fill = Color32::from_rgb(250, 250, 251);
     style.visuals.selection.bg_fill = Color32::from_rgb(204, 223, 243);
-    style.visuals.selection.stroke = egui::Stroke::new(1.0, Color32::from_rgb(39, 67, 97));
+    style.visuals.selection.stroke = egui::Stroke::new(1.0_f32, Color32::from_rgb(39, 67, 97));
     for widget in [
         &mut style.visuals.widgets.inactive,
         &mut style.visuals.widgets.hovered,
@@ -1373,32 +1288,6 @@ fn configure(ctx: &egui::Context) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn runtime_problem_is_visible_only_on_its_run_file() {
-        let site = camel_audio_runtime::language::Site {
-            file: "workflow.camel".into(),
-            line: 1,
-            column: 1,
-            offset: 0,
-            end_line: 1,
-            end_column: 1,
-            end_offset: 0,
-        };
-        let diagnostic = RuntimeDiagnostic {
-            run_file: PathBuf::from("workflow.camel"),
-            error: Error::at(&site, "runtime failure"),
-        };
-
-        assert!(
-            runtime_error_for_file(Some(&diagnostic), Some(Path::new("workflow.camel"))).is_some()
-        );
-        assert!(
-            runtime_error_for_file(Some(&diagnostic), Some(Path::new("other.camel"))).is_none()
-        );
-        assert!(runtime_error_for_file(Some(&diagnostic), None).is_none());
-    }
-
     #[test]
     fn ui_lays_out_a_real_checked_program() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))

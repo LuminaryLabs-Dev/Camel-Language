@@ -358,27 +358,35 @@ The user approved implementing the general-purpose agent language foundation. Ex
 - Plugin search for Discord community management returned no relevant Discord connector; an integration is unnecessary for planning only.
 
 
-## Camel diagnostic push-readiness review — 2026-10-16
+## Camel Studio Hugging Face to Ollama importer — 2026-10-16
 
-- User asked whether the current structured diagnostic, lint, and Studio changes are ready to push; explicitly said not to push. No push was performed.
-- `git diff --check` passes. Prior `cargo check --locked` runs for runtime and Studio passed. No test suite was run for this latest set of changes.
-- Push blockers identified: `stable_check_code` assigns public codes by matching human-readable diagnostic messages, so wording edits can silently change codes or fall back to `CAMEL-CHECK-099`; lint implementation has no focused tests; lint name-use analysis is global rather than scope-resolved, so shadowing/name reuse can misattribute unused warnings.
-- Additional review note: Studio Problems currently displays the latest runtime error regardless of which editor tab is active, while source highlighting filters runtime diagnostics to the active file. Consider associating runtime diagnostics with the relevant run/tab or clarifying this presentation.
-- Recommendation: do not push as the stable-code and lint behavior claims are not adequately guarded; add rule-owned codes and focused tests, then rerun runtime and Studio suites. No external plugin is needed for this repository review.
+- User authorized implementing the GGUF-first Hugging Face import flow on existing branch `Camel-Studio-Models` and confirmed the model downloads locally before Ollama registers/stores it.
+- Added Tools → Manage Models. It searches Hugging Face's model API for GGUF-tagged repositories, lists repository GGUF artifacts with available sizes, pins downloads to the selected revision, uses an in-memory optional HF token, streams one file to a temporary local file, computes SHA-256, sends the blob to the configured Ollama server, creates the local Ollama model, and refreshes the installed-model list. The imported model name is deterministic for repository/revision/file and displayed for use in Camel agent declarations.
+- Added a control to set the manager's Ollama endpoint as Studio's workflow endpoint for the next run. README documents Ollama local setup expectation and current one-file GGUF scope.
+- Current scope does not include model deletion, multi-shard GGUF import, general Safetensors conversion, explicit load/unload controls, or Studio UI for temperature/context/concurrency. Ollama may load an imported model on first inference.
+- `cargo check --locked --manifest-path .\\Camel-Language\\studio\\Cargo.toml` passed. `git diff --check` passed. No tests were run per instruction.
 
-## Diagnostic reliability follow-up — 2026-10-16
+## Camel Studio individual and multi-model controls — 2026-10-16
 
-- User asked to tighten the three push-readiness findings; no push was requested or performed.
-- Removed message-text-based diagnostic code inference and `CAMEL-CHECK-099`. Checker diagnostics now retain explicit check/type codes; type validation errors carry the type phase and stable `CAMEL-TYPE-002` code. Regression coverage confirms distinct semantic messages retain `CAMEL-CHECK-001`, static mismatches retain `CAMEL-TYPE-001`, and unknown types receive `CAMEL-TYPE-002`.
-- Reworked unused-name analysis to resolve references against lexical scopes and unique binding identities. Nested shadowed variables no longer make an outer binding appear used; writes alone do not count as reads. Tests confirm warnings remain nonblocking.
-- Runtime Problems now retain the originating workflow file and only display the last runtime diagnostic in that file's tab. A Studio unit test covers matching, nonmatching, and absent active-file cases.
-- Verification: all 10 `runtime/tests/studio_api.rs` tests pass; all 8 Studio library tests pass; changed linter, test, and Studio files pass direct rustfmt checks; `git diff --check` passes. Full runtime suite cannot complete because `excessive_parser_nesting_returns_an_error` reproducibly stack-overflows; excluding that test, a later full run hit an MSVC linker internal crash. Full Studio package run also hit an MSVC linker LNK1223 error, though all Studio library tests pass. These are verification limitations, not attributed to the changed diagnostics code.
-- Plugin search was unnecessary for local Rust implementation. Skills applied: `atomize-it` and `camel-agent-programming`.
+- User expanded scope to include individual model control, loading multiple models, multi-model use cases in code, and using multiple agents/models in one workflow.
+- Model Manager now shows installed and running Ollama models, supports selecting and loading several together, setting context size per model at load time, and loading/unloading each model individually. Failed batch operations still refresh status so a partial load is reflected accurately.
+- Added `Camel/examples/multi_model_review.camel`: two independently configured agents use distinct model IDs and temperatures, start in parallel with `spawn`, and combine their structured results. README explains setup and memory-dependent Ollama behavior.
+- Temperature remains controlled per Camel agent declaration. Context is configured per model load in Studio; Ollama controls effective request concurrency based on server settings and available memory.
+- Verification: Studio `cargo check --locked` passed; `git diff --check` passed. No tests were run. No plugin was needed.
 
-## Camel Discord channel setup guide — 2026-10-16
+## Studio model interface visibility — 2026-10-16
 
-- User asked for setup instructions for each proposed Camel Discord channel, beginning with #start-here; this remains guidance, not authorization to create or modify a Discord server.
-- Tailor channel content to the current Camel 0.2 preview: general-purpose agent programming language, CLI/runtime, native Studio, workflow help, and source libraries. Use the current installation and language-spec documents as references.
-- The canonical installation guide explicitly says distribution sharing remains private until public access is authorized. Welcome and getting-started copy must not promise a public download; point only to an authorized route.
-- Recommend read-only orientation/announcement channels, focused learner and builder support, forums for durable help/proposals/bugs, and filtered GitHub notifications. Discord Community Onboarding routes channels/roles; Forums require Community enabled.
+- User reported not seeing the model interface. The manager was initially reachable only through Tools → Manage Models…; added a visible Models toolbar button too.
+- The prior action ran `cargo check`, which checks compilation but does not rebuild the launchable executable. Built the current release executable with `cargo build --release --locked --manifest-path .\\studio\\Cargo.toml` and the documented LLVM linker setting. It is at `studio/target/release/camel-studio.exe`.
+- A debug executable launch returned immediately in this tool session, so do not claim the new UI was visually confirmed. User can launch the rebuilt release binary directly; full Camel reinstall is unnecessary. If using an installed bundle/launcher, its Studio executable may need replacement or its configured path updated.
+- No relevant plugin was needed; `debug-it` and `run-it` skills were applied.
+- Follow-up found `camel` resolves to the per-user install at `%LOCALAPPDATA%/Programs/Camel/bin/camel.exe`; its sibling `camel-studio.exe` was an older Oct 13 build and takes precedence over repo output.
+- After the user saved and closed Studio, replaced the installed sibling with the verified release build and confirmed matching SHA-256. Removed the temporary backup and alias and cleared the user `CAMEL_STUDIO_PATH` override, so `camel --gui` now uses the standard sibling path with the new build. Full reinstall is unnecessary.
+- No process was force-closed. The installed executable was hash-verified; visual launch after replacement was not performed. No relevant plugin was needed; `debug-it` and `run-it` skills were applied.
 
+## PR #2 CI failures — 2026-10-16
+
+- User requested a quick diagnosis and resolution for failing checks on the Camel Studio model-management PR. The GitHub connector and `gh-fix-ci` skill identified CI run 38855397450; PR #2 was already merged, so any follow-up fix requires a new change on top of main.
+- CI stable Rust 1.99 rustfmt required updates in Studio document, library-manager, and model-manager sources. Newer Clippy deprecated `AtomicUsize::fetch_update`; replaced it with an MSRV-compatible compare-exchange decrement loop because the runtime supports Rust 1.88. Studio Clippy also flagged two cleanup issues in `app.rs` (combined char replacement and needless borrow).
+- The first follow-up CI run passed runtime on Linux and formatting on all four jobs, then Linux Studio Clippy exposed a Rust 1.99 `float_literal_f32_fallback` warning at `Stroke::new(1.0, ...)`; suffixed the literal as `1.0_f32` and updated the follow-up PR.
+- Local validation passed: runtime and Studio rustfmt checks, runtime and Studio Clippy with `-D warnings`, runtime and Studio test suites, all three runtime workflow CLI smoke checks, and the Studio release build. Runtime test/smoke commands needed unsandboxed filesystem access because sandboxed temporary/example-file reads returned Access Denied; with access, all passed. No relevant plugin was needed beyond GitHub connector for PR/check metadata.

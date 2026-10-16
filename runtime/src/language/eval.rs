@@ -133,17 +133,19 @@ impl Context {
         }
     }
     pub(crate) fn tick(&self, site: &Site) -> Result<()> {
-        if self
-            .shared
-            .fuel
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_sub(1))
-            .is_err()
-        {
-            let mut e = Error::at(site, "execution step budget exhausted");
-            e.fatal = true;
-            Err(e)
-        } else {
-            Ok(())
+        let fuel = &self.shared.fuel;
+        let mut remaining = fuel.load(Ordering::Relaxed);
+        loop {
+            let Some(next) = remaining.checked_sub(1) else {
+                let mut error = Error::at(site, "execution step budget exhausted");
+                error.fatal = true;
+                return Err(error);
+            };
+            match fuel.compare_exchange_weak(remaining, next, Ordering::Relaxed, Ordering::Relaxed)
+            {
+                Ok(_) => return Ok(()),
+                Err(observed) => remaining = observed,
+            }
         }
     }
     fn name(&self, name: &str, s: &Site) -> Result<Value> {
