@@ -591,3 +591,9 @@ The user approved implementing the general-purpose agent language foundation. Ex
 - Runtime, Studio, library-manager, and installer suites pass (107 tests total), including loopback HTTP mock tests with required local access. Formatting, `git diff --check`, and strict Clippy pass for all crates. Parallel MSVC build attempts exposed toolchain crashes; serial release builds pass.
 - Hosted Windows CI remains unrun for this uncommitted candidate. No user-level app installation, commit, push, tag, or publication was performed.
 
+
+## Studio CI float-literal fix — 2026-10-17
+
+- User reported the Windows deployment workflow failing strict Clippy with `float_literal_f32_fallback` in `studio/src/editor.rs` while constructing an underline stroke.
+- Annotated the width as `1.0_f32`, matching `Stroke::new` and the compiler's suggested fix. No behavior changes.
+- `cargo clippy --manifest-path studio/Cargo.toml --locked --offline --all-targets -- -D warnings` passes. Only non-fatal hard-link cache warnings were emitted by the local Windows filesystem.

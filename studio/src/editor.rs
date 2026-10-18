@@ -217,7 +217,7 @@ pub(super) fn highlight(source: &str, diagnostics: &[Diagnostic]) -> LayoutJob {
         for section in &mut job.sections {
             if section.byte_range.start < end && section.byte_range.end > start {
                 section.format.background = color;
-                section.format.underline = Stroke::new(1.0, Color32::from_rgb(190, 55, 48));
+                section.format.underline = Stroke::new(1.0_f32, Color32::from_rgb(190, 55, 48));
             }
         }
     }
