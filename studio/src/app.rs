@@ -3,16 +3,16 @@ use crate::{
     editor,
     library_manager::LibraryManager,
     model_manager::ModelManager,
-    runner::{Runner, Update},
-    worker::Message,
+    runner::{Runner, RunnerSettings, Update},
+    worker::{Message, RunArtifacts},
 };
 use camel_audio_runtime::language::{
     analyze_buffer, AnalysisResult, CompiledProgram, Declaration, Diagnostic, DiagnosticPhase,
-    Error, ExecutionEvent, Severity,
+    Error, ExecutionEvent, Limits, Severity,
 };
 use eframe::egui::{self, Color32, FontId, Key, Modifiers, RichText};
 use std::{
-    collections::VecDeque,
+    collections::{BTreeMap, BTreeSet, VecDeque},
     path::{Path, PathBuf},
     sync::mpsc::{self, Receiver},
     time::{Duration, Instant},
@@ -39,6 +39,7 @@ struct Tab {
     checking: Option<Receiver<CheckResult>>,
     workflow: String,
     arguments: Vec<Argument>,
+    agent_models: BTreeMap<String, String>,
     jump: Option<(usize, usize)>,
     cursor: (usize, usize),
 }
@@ -56,6 +57,7 @@ impl Tab {
             checking: None,
             workflow: "Main".into(),
             arguments: Vec::new(),
+            agent_models: BTreeMap::new(),
             jump: None,
             cursor: (1, 1),
         }
@@ -171,6 +173,36 @@ struct RuntimeDiagnostic {
     error: Error,
 }
 
+#[derive(Clone, Copy)]
+struct RunBudget {
+    tokens_used: usize,
+    tokens_limit: usize,
+    tool_calls_used: usize,
+    tool_calls_limit: usize,
+    elapsed_ms: u64,
+    deadline_ms: u64,
+}
+impl RunBudget {
+    fn from_limits(limits: &Limits) -> Self {
+        Self {
+            tokens_used: 0,
+            tokens_limit: limits.tokens,
+            tool_calls_used: 0,
+            tool_calls_limit: limits.tool_calls,
+            elapsed_ms: 0,
+            deadline_ms: limits.deadline.as_millis().min(u64::MAX as u128) as u64,
+        }
+    }
+
+    fn progress(used: u64, limit: u64) -> f32 {
+        if limit == 0 {
+            0.0
+        } else {
+            (used as f64 / limit as f64).clamp(0.0, 1.0) as f32
+        }
+    }
+}
+
 impl RuntimeDiagnostic {
     fn belongs_to(&self, file: &Path) -> bool {
         canonical_path(&self.run_file) == canonical_path(file)
@@ -207,6 +239,16 @@ pub struct Studio {
     last_run_file: Option<PathBuf>,
     run_name: String,
     run_status: String,
+    run_budget: RunBudget,
+    run_started: Option<Instant>,
+    approval_dialog: bool,
+    approval_confirmed: bool,
+    approved_capabilities: BTreeSet<String>,
+    checkpoint_path: String,
+    resume_checkpoint: bool,
+    cassette_path: String,
+    replay_cassette: bool,
+    evaluation_report_path: String,
     output: OutputTab,
     endpoint: String,
     library_manager: LibraryManager,
@@ -232,6 +274,7 @@ impl Studio {
         app
     }
     fn empty(root: PathBuf) -> Self {
+        let run_budget = RunBudget::from_limits(&Limits::default());
         Self {
             #[cfg(feature = "capture")]
             capture: Default::default(),
@@ -248,6 +291,16 @@ impl Studio {
             last_run_file: None,
             run_name: "No run yet".into(),
             run_status: "Ready".into(),
+            run_budget,
+            run_started: None,
+            approval_dialog: false,
+            approval_confirmed: false,
+            approved_capabilities: BTreeSet::new(),
+            checkpoint_path: String::new(),
+            resume_checkpoint: false,
+            cassette_path: String::new(),
+            replay_cassette: false,
+            evaluation_report_path: String::new(),
             output: OutputTab::Timeline,
             endpoint: std::env::var("CAMEL_LM_ENDPOINT")
                 .unwrap_or_else(|_| "http://localhost:1234".into()),
@@ -385,6 +438,12 @@ impl Studio {
         if self.runner.is_some() {
             return;
         }
+        if !self.approval_confirmed {
+            self.approved_capabilities.clear();
+            self.approval_dialog = true;
+            return;
+        }
+        self.approval_confirmed = false;
         let index = self.active;
         if self.tabs[index].checked != Some(self.tabs[index].revision)
             || self.tabs[index].error.is_some()
@@ -425,6 +484,12 @@ impl Studio {
             }
         };
         let entry = tab.workflow.clone();
+        let agent_models = tab
+            .agent_models
+            .iter()
+            .filter(|(_, model)| !model.trim().is_empty())
+            .map(|(agent, model)| (agent.clone(), model.trim().to_owned()))
+            .collect();
         // Validate the exact saved entry before replacing any prior run output.
         if let Err(e) =
             CompiledProgram::load(&path).and_then(|p| p.parse_arguments(&entry, &raw).map(|_| ()))
@@ -439,7 +504,49 @@ impl Studio {
                 return;
             }
         };
-        match Runner::start(&executable, &path, &entry, &raw, &self.endpoint) {
+        let checkpoint = self.checkpoint_path.trim();
+        if self.resume_checkpoint && checkpoint.is_empty() {
+            self.notice = Some("Enter the checkpoint path to resume.".into());
+            return;
+        }
+        let cassette = self.cassette_path.trim();
+        if !self.evaluation_report_path.trim().is_empty()
+            && (!self.replay_cassette || cassette.is_empty())
+        {
+            self.notice =
+                Some("Evaluation reports require a replay cassette and an output path.".into());
+            return;
+        }
+        if self.replay_cassette && cassette.is_empty() {
+            self.notice = Some("Enter a cassette path before replaying.".into());
+            return;
+        }
+        let artifacts = RunArtifacts {
+            checkpoint: (!self.resume_checkpoint && !checkpoint.is_empty())
+                .then(|| PathBuf::from(checkpoint)),
+            resume: self.resume_checkpoint.then(|| PathBuf::from(checkpoint)),
+            record_cassette: (!cassette.is_empty() && !self.replay_cassette)
+                .then(|| PathBuf::from(cassette)),
+            replay_cassette: (self.replay_cassette && !cassette.is_empty())
+                .then(|| PathBuf::from(cassette)),
+            evaluation_report: (!self.evaluation_report_path.trim().is_empty())
+                .then(|| PathBuf::from(self.evaluation_report_path.trim())),
+        };
+        let approvals = std::mem::take(&mut self.approved_capabilities)
+            .into_iter()
+            .collect::<Vec<_>>();
+        match Runner::start_with_artifacts(
+            &executable,
+            &path,
+            &entry,
+            &raw,
+            RunnerSettings {
+                endpoint: &self.endpoint,
+                agent_models: &agent_models,
+                approvals: &approvals,
+                artifacts: &artifacts,
+            },
+        ) {
             Ok(runner) => {
                 self.runner = Some(runner);
                 self.rows.clear();
@@ -456,6 +563,8 @@ impl Studio {
                     .unwrap_or_else(|| "Workflow".into());
                 self.run_name = format!("{workflow_file} / {entry}");
                 self.run_status = "Running".into();
+                self.run_budget = RunBudget::from_limits(&Limits::default());
+                self.run_started = Some(Instant::now());
                 self.output = OutputTab::Timeline;
             }
             Err(e) => self.notice = Some(format!("Could not start runtime: {e}")),
@@ -512,6 +621,23 @@ impl Studio {
                                     row.outcome = Some((success, elapsed_ms));
                                 }
                             }
+                            ExecutionEvent::Budget {
+                                tokens_used,
+                                tokens_limit,
+                                tool_calls_used,
+                                tool_calls_limit,
+                                elapsed_ms,
+                                deadline_ms,
+                            } => {
+                                self.run_budget = RunBudget {
+                                    tokens_used,
+                                    tokens_limit,
+                                    tool_calls_used,
+                                    tool_calls_limit,
+                                    elapsed_ms,
+                                    deadline_ms,
+                                };
+                            }
                             ExecutionEvent::Log { text } => self.push_console(text),
                         },
                         Update::Message(Message::Result { value }) => {
@@ -529,6 +655,7 @@ impl Studio {
                     }
                 }
                 if let Some(success) = done {
+                    self.freeze_run_elapsed();
                     self.runner = None;
                     self.run_status = if stopped {
                         "Stopped"
@@ -546,10 +673,16 @@ impl Studio {
                 }
             }
             Err(e) => {
+                self.freeze_run_elapsed();
                 self.notice = Some(e);
                 self.runner = None;
                 self.run_status = "Failed".into();
             }
+        }
+    }
+    fn freeze_run_elapsed(&mut self) {
+        if let Some(started) = self.run_started {
+            self.run_budget.elapsed_ms = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
         }
     }
     fn action(&mut self, action: Action, ctx: &egui::Context) {
@@ -772,7 +905,7 @@ impl Studio {
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.label(
-                    RichText::new("CAMEL STUDIO  /  0.2.0 PREVIEW")
+                    RichText::new("CAMEL STUDIO  /  v.0.3.0")
                         .size(11.0)
                         .color(Color32::from_rgb(105, 113, 125)),
                 );
@@ -844,6 +977,23 @@ impl Studio {
         ui.label(RichText::new("Inputs and components").size(11.0).weak());
         ui.separator();
         egui::ScrollArea::vertical().id_salt("inspector").show(ui,|ui| {
+            ui.strong("Run budgets");
+            let elapsed_ms = if self.runner.is_some() {
+                self.run_started
+                    .map(|started| self.run_budget.elapsed_ms.max(started.elapsed().as_millis() as u64))
+                    .unwrap_or(self.run_budget.elapsed_ms)
+            } else {
+                self.run_budget.elapsed_ms
+            };
+            ui.label(format!("Tokens used: {} / {}", self.run_budget.tokens_used, self.run_budget.tokens_limit));
+            ui.add(egui::ProgressBar::new(RunBudget::progress(self.run_budget.tokens_used as u64, self.run_budget.tokens_limit as u64)).show_percentage());
+            ui.label(format!("Tool calls: {} / {}", self.run_budget.tool_calls_used, self.run_budget.tool_calls_limit));
+            ui.add(egui::ProgressBar::new(RunBudget::progress(self.run_budget.tool_calls_used as u64, self.run_budget.tool_calls_limit as u64)).show_percentage());
+            ui.label(format!("Time used: {:.1}s / {:.0}s", elapsed_ms as f64 / 1000.0, self.run_budget.deadline_ms as f64 / 1000.0));
+            ui.add(egui::ProgressBar::new(RunBudget::progress(elapsed_ms, self.run_budget.deadline_ms)).show_percentage());
+            ui.add_space(8.0);
+            ui.separator();
+            let available_models = self.model_manager.available_model_names();
             let tab=&mut self.tabs[self.active];
             let names:Vec<_>=tab.analysis.iter().filter(|d|d.kind=="workflow").map(|d|d.name.clone()).collect();
             ui.strong("Workflow");
@@ -861,6 +1011,35 @@ impl Studio {
             ui.add_space(10.0);ui.separator();ui.strong("Model service");
             ui.add(egui::TextEdit::singleline(&mut self.endpoint).desired_width(f32::INFINITY));
             ui.label(RichText::new("Configured address; connection not tested.\nModels are chosen for each agent.").size(11.0).weak());
+            let agents: Vec<_> = tab.analysis.iter().filter(|d| d.kind == "agent").map(|d| (d.name.clone(), d.details.iter().find(|(key, _)| key == "model").map(|(_, value)| value.clone()).unwrap_or_default())).collect();
+            if !agents.is_empty() {
+                ui.add_space(6.0);
+                ui.strong("Agent models");
+                for (agent, source_model) in agents {
+                    let selected = tab.agent_models.entry(agent.clone()).or_default();
+                    ui.label(RichText::new(&agent).size(11.0).strong());
+                    let selected_text = if selected.trim().is_empty() {
+                        if source_model.is_empty() { "Use model from source".to_owned() } else { format!("Source: {source_model}") }
+                    } else {
+                        selected.clone()
+                    };
+                    egui::ComboBox::from_id_salt(("agent_model", tab.id, &agent))
+                        .width(ui.available_width() - 12.0)
+                        .selected_text(selected_text)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(selected, String::new(), "Use model from source");
+                            for model in &available_models {
+                                ui.selectable_value(selected, model.clone(), model);
+                            }
+                        });
+                    ui.add(egui::TextEdit::singleline(selected)
+                        .desired_width(f32::INFINITY)
+                        .hint_text("Custom model ID (optional)"));
+                }
+                if available_models.is_empty() {
+                    ui.weak("No installed Ollama models listed; enter any endpoint model ID above.");
+                }
+            }
             for kind in ["agent","tool","policy","record"] {
                 let declarations:Vec<_>=tab.analysis.iter().filter(|d|d.kind==kind).collect();
                 if declarations.is_empty(){continue;}
@@ -919,7 +1098,7 @@ impl Studio {
                         let site = &diagnostic.primary_span.start;
                         ui.horizontal(|ui| {
                             if ui.small_button(format!("{}  {}:{}:{}", diagnostic.code, site.file, site.line, site.column)).clicked() {
-                                source_target = Some((PathBuf::from(&site.file), site.line, site.column));
+                                source_target = Some(diagnostic_source_target(diagnostic));
                             }
                             ui.colored_label(if diagnostic.severity == Severity::Error { Color32::from_rgb(160, 64, 46) } else { Color32::from_rgb(145, 104, 20) }, format!("{:?}", diagnostic.severity));
                         });
@@ -1081,10 +1260,69 @@ impl Studio {
     fn dialogs(&mut self, ctx: &egui::Context) {
         if self.about {
             egui::Window::new("About Camel Studio").collapsible(false).resizable(false).open(&mut self.about).show(ctx,|ui|{
-                ui.heading("Camel Studio");ui.label("0.2.0 preview • native Camel code editor");ui.separator();
+                ui.heading("Camel Studio");ui.label("v.0.3.0 • native Camel code editor");ui.separator();
                 ui.label("Edit a script, configure its inputs, and inspect workflow results.");ui.label("Ctrl+O: open script\nCtrl+F5: validate\nF5: run • Shift+F5: stop");ui.separator();
                 ui.label("Stop ends the active run. Completed file writes are not undone.\nIt does not unload models or stop LM Studio.\nFinish recording ends an open capture.\nValidate checks setup without starting a run. Workflows use this computer's permissions.");
             });
+        }
+        if self.approval_dialog {
+            let mut approve = false;
+            let mut cancel = false;
+            egui::Modal::new(egui::Id::new("run_capability_approval")).show(ctx, |ui| {
+                ui.heading("Approve capabilities for this run");
+                ui.label("The worker will block effects that are not selected here.");
+                for (name, label) in [
+                    ("model", "Model calls"),
+                    ("microphone", "Microphone capture"),
+                    ("file-read", "File reads"),
+                    ("file-write", "File writes"),
+                    ("network", "Network access"),
+                    ("shell", "Shell access"),
+                ] {
+                    let mut selected = self.approved_capabilities.contains(name);
+                    if ui.checkbox(&mut selected, label).changed() {
+                        if selected {
+                            self.approved_capabilities.insert(name.to_owned());
+                        } else {
+                            self.approved_capabilities.remove(name);
+                        }
+                    }
+                }
+                ui.separator();
+                ui.label("Checkpoint and resume");
+                ui.checkbox(&mut self.resume_checkpoint, "Resume from this checkpoint");
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.checkpoint_path)
+                        .hint_text("Checkpoint file path")
+                        .desired_width(320.0),
+                );
+                ui.label("Replay cassette and report");
+                ui.checkbox(
+                    &mut self.replay_cassette,
+                    "Replay cassette (otherwise record)",
+                );
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.cassette_path)
+                        .hint_text("Cassette file path")
+                        .desired_width(320.0),
+                );
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.evaluation_report_path)
+                        .hint_text("Optional evaluation report path")
+                        .desired_width(320.0),
+                );
+                ui.horizontal(|ui| {
+                    approve = ui.button("Approve and run").clicked();
+                    cancel = ui.button("Cancel").clicked();
+                });
+            });
+            if approve {
+                self.approval_dialog = false;
+                self.approval_confirmed = true;
+                self.run();
+            } else if cancel {
+                self.approval_dialog = false;
+            }
         }
         let Some(pending) = self.pending else {
             return;
@@ -1297,6 +1535,10 @@ fn phase_name(phase: DiagnosticPhase) -> &'static str {
         DiagnosticPhase::Runtime => "Runtime",
     }
 }
+fn diagnostic_source_target(diagnostic: &Diagnostic) -> (PathBuf, usize, usize) {
+    let site = &diagnostic.primary_span.start;
+    (PathBuf::from(&site.file), site.line, site.column)
+}
 fn display_detail_name(name: &str) -> &str {
     match name {
         "model" => "Model",
@@ -1444,6 +1686,47 @@ mod tests {
         assert!(!out.shapes.is_empty());
         assert_eq!(app.tabs[0].arguments.len(), 1);
         assert!(app.runner.is_none());
+    }
+    #[test]
+    fn imported_problem_navigation_opens_and_highlights_its_source() {
+        let directory = tempfile::tempdir().unwrap();
+        let entry_path = directory.path().join("main.camel");
+        let imported_path = directory.path().join("support.camel");
+        let entry_source = "import \"support.camel\"; workflow int Main() { return Helper(); }";
+        let imported_source = "int Helper() { int invalid = \"wrong\"; return 1; }";
+        std::fs::write(&entry_path, entry_source).unwrap();
+        std::fs::write(&imported_path, imported_source).unwrap();
+        let entry_path = entry_path.canonicalize().unwrap();
+        let imported_path = imported_path.canonicalize().unwrap();
+        let entry_analysis = analyze_buffer(&entry_path, entry_source);
+        let diagnostic = entry_analysis
+            .diagnostics()
+            .iter()
+            .find(|diagnostic| diagnostic.code == "CAMEL-TYPE-001")
+            .expect("imported-file diagnostic");
+        let (target, line, column) = diagnostic_source_target(diagnostic);
+        assert_eq!(target, imported_path);
+        assert_eq!(
+            (line, column),
+            (1, imported_source.find("\"wrong\"").unwrap() + 1)
+        );
+
+        let imported_analysis = analyze_buffer(&target, imported_source);
+        let job = editor::highlight(imported_source, imported_analysis.diagnostics());
+        let span = &imported_analysis.diagnostics()[0].primary_span;
+        let highlighted = job.sections.iter().any(|section| {
+            section.byte_range.start <= span.start.offset
+                && span.start.offset < section.byte_range.end
+                && section.format.background == Color32::from_rgb(255, 226, 224)
+        });
+        assert!(highlighted, "imported diagnostic span was not highlighted");
+
+        let mut app = Studio::empty(directory.path().to_path_buf());
+        app.open(&entry_path);
+        app.open(&target);
+        app.tabs[app.active].jump = Some((line, column));
+        assert_eq!(app.tabs[app.active].doc.path.as_ref(), Some(&target));
+        assert_eq!(app.tabs[app.active].jump, Some((line, column)));
     }
     #[test]
     fn default_arguments_are_omitted_not_executed() {

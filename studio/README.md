@@ -1,4 +1,4 @@
-# Camel Studio — 0.2.0 preview
+# Camel Studio — v.0.3.0
 
 A native Rust code editor and workflow runner for Camel agent orchestration. Edit Camel scripts directly, validate them, configure workflow inputs, and inspect execution results. Shipped examples and standard-library sources are kept out of the default project browser. Built with [eframe/egui](https://docs.rs/eframe/0.33.3/eframe/) and native [rfd file dialogs](https://docs.rs/rfd/0.15.4/rfd/). No browser, webview, JavaScript, or Python runtime is required.
 
@@ -28,8 +28,9 @@ When the CLI and Studio are installed together, run `camel --gui` to open Studio
 - **Project:** the left browser lists user scripts. When running from a full Camel distribution, shipped examples and standard-library files are excluded from that list; use Open to choose a file explicitly. Build caches, Git directories, symlinks, and historical `dist` copies are excluded. Scanning is limited to 500 files and 12 directory levels.
 - **Setup:** select a workflow and enter its inputs. Agents, models, integrations, data types, and safety rules appear in the inspector.
 - **Runs:** live workflow, agent, model-request, tool, and microphone events with status and elapsed time. Console contains workflow logs and worker status; Result contains the returned JSON; Problems groups syntax, analysis, type, lint, and runtime diagnostics with source navigation.
+- **Checkpoint and replay:** the per-run approval dialog accepts a checkpoint file, optional resume mode, persisted cassette record/replay, and an evaluation report destination. Replays are bound to the analyzed source and skip captured effects; checkpoint state and cassette files remain local run artifacts.
 - **Library Manager:** open **Tools → Manage Libraries…** to search the catalog, inspect versions, and install, update, or remove libraries. Catalog refresh and package downloads run in the background. Packages install under `CAMEL_HOME/libraries`; the default is `%LOCALAPPDATA%/Camel/libraries` on Windows and `~/.camel/libraries` elsewhere.
-- **Model Manager:** click **Models** in the main toolbar or open **Tools → Manage Models…** to search Hugging Face for GGUF repositories, inspect files, download one selected GGUF into a temporary local file, and register it in a running Ollama server. Select several installed models and load them together, choose context size per model, or unload them individually. Optional Hugging Face tokens are kept in memory only. Use **Use Ollama for workflow runs** to set the model service endpoint; select each imported Ollama model name in its Camel agent declaration.
+- **Model Manager:** click **Models** in the main toolbar or open **Tools → Manage Models…** to search Hugging Face for GGUF repositories, inspect files, download one selected GGUF into a temporary local file, and register it in a running Ollama server. Select several installed models and load them together, choose context size per model, or unload them individually. Optional Hugging Face tokens are kept in memory only. Use **Use Ollama for workflow runs** to set the model service endpoint. In **Workflow setup → Agent models**, choose a model separately for every declared agent; the list grows with the source file and includes installed Ollama models, while the custom model ID field accepts IDs from other compatible endpoints. Blank overrides use the model configured in Camel source. These per-agent overrides last for the current Studio session and do not modify the `.camel` file.
 
 The first launch does not open a packaged example or run anything automatically.
 
@@ -39,7 +40,7 @@ Open `Camel/examples/programming_core.camel`, leave `count` at its recommended v
 
 For agent examples, start LM Studio at `http://localhost:1234` and load the model named in the script. The endpoint field configures the next run; it is not a claim that a server is connected. `CAMEL_LM_TOKEN`, `LM_API_TOKEN`, model-specific environment variables, and `CAMEL_LM_TIMEOUT_SECONDS` are inherited by the worker. Studio does not display or store tokens.
 
-For a parallel multi-model workflow, start Ollama at `http://localhost:11434`, import and load two chat-capable models in Model Manager, and open `Camel/examples/multi_model_review.camel`. Set `CAMEL_ANALYST_MODEL` and `CAMEL_SKEPTIC_MODEL` to the installed Ollama model names, or edit the agent declarations. Each agent selects its own model and temperature; `spawn` starts both model requests before the workflow awaits their results. Ollama may queue or unload models when available memory is insufficient.
+For a parallel multi-model workflow, start Ollama at `http://localhost:11434`, import and load the chat-capable models in Model Manager, and open `Camel/examples/multi_model_review.camel`. In **Agent models**, select a model for each agent or keep the source configuration. Each agent keeps its own model and temperature; `spawn` starts model requests before the workflow awaits their results. Ollama may queue or unload models when available memory is insufficient.
 
 For microphone notes, open `Camel/examples/audio_note_summarizer.camel`. `Main` records from the microphone; `FromFile` accepts existing audio. **Finish recording** sends Enter to a `record(0)` session; timed recording ends at the script's duration. **Stop** aborts the entire worker rather than returning partial audio. Liquid/LM Studio audio inference still depends on a server accepting `input_audio`; successful inference with those models has not been established here.
 
@@ -77,7 +78,7 @@ cargo build --release --manifest-path .\studio\Cargo.toml --locked
 pwsh .\scripts\package-preview.ps1 -IncludeStudio
 ```
 
-This creates a new `Camel/dist/Camel-0.2.0-preview-studio.zip`, preserving older archives. Linux source builds need ALSA, Wayland/XKB development packages and a graphical session; Windows is the locally exercised platform.
+This creates a new `Camel/dist/Camel-v.0.3.0-windows-x86_64-studio-setup.zip`, preserving older archives. The current v.0.3.0 distribution target is Windows.
 
 Developer-only native render capture:
 

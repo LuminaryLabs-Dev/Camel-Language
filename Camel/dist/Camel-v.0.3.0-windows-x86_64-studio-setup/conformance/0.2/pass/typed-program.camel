@@ -1,0 +1,13 @@
+version "0.2";
+
+int Add(int left, int right) {
+    return left + right;
+}
+
+workflow int Main() {
+    int result = Add(2, 3);
+    if (result > 2) {
+        return result;
+    }
+    return 0;
+}

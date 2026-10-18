@@ -1,0 +1,28 @@
+[package]
+name = "camel-studio"
+version = "0.2.0"
+edition = "2021"
+rust-version = "1.88"
+description = "A native, script-first IDE for Camel agent orchestration"
+license = "Apache-2.0"
+
+[features]
+capture = ["dep:image"]
+
+[dependencies]
+camel-audio-runtime = { path = "../runtime" }
+eframe = { version = "=0.33.3", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
+rfd = "0.15.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+sha2 = "0.10"
+image = { version = "0.25", default-features = false, features = ["png"], optional = true }
+
+# Keep local GUI builds lean; also avoids an installed LLVM PDB-writer crash on Windows.
+[profile.dev]
+debug = 0
+
+[profile.test]
+debug = 0

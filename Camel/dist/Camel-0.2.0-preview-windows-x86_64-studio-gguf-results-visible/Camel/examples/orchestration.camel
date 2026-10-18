@@ -1,0 +1,48 @@
+version "0.2";
+
+// Two bounded agents review the same notes in parallel, then join their typed results.
+// Start LM Studio and load LiquidAI/LFM2.5-1.2B-Thinking before running.
+record Review {
+    string[] observations;
+    string[] uncertainties;
+}
+
+record Brief {
+    string topic;
+    Review decisions;
+    Review risks;
+}
+
+policy ReasonOnly {
+    maxToolCalls = 0;
+    allowNetwork = false;
+    allowFileRead = false;
+    allowFileWrite = false;
+    allowShell = false;
+}
+
+agent DecisionReviewer {
+    model = env("CAMEL_SUMMARY_MODEL", "LiquidAI/LFM2.5-1.2B-Thinking");
+    system = "Extract decisions relevant to the requested topic. Use only supplied notes; label unknowns as uncertainties.";
+    response = Review;
+    policy = ReasonOnly;
+    maxTurns = 2;
+}
+
+agent RiskReviewer {
+    model = env("CAMEL_SUMMARY_MODEL", "LiquidAI/LFM2.5-1.2B-Thinking");
+    system = "Identify risks and unresolved questions relevant to the requested topic. Use only supplied notes; do not invent facts.";
+    response = Review;
+    policy = ReasonOnly;
+    maxTurns = 2;
+}
+
+workflow Brief Main(string notes = "Launch review: release date is tentative; security approval is still pending.", string topic = "launch readiness") {
+    string prompt = $"Topic: {topic}\nNotes: {notes}";
+    Task<AgentResult> decisions = spawn DecisionReviewer.run(prompt);
+    Task<AgentResult> risks = spawn RiskReviewer.run(prompt);
+    AgentResult decisionResult = await decisions;
+    AgentResult riskResult = await risks;
+    log("Both reviewers completed.");
+    return new Brief { topic = topic, decisions = decisionResult.data, risks = riskResult.data };
+}

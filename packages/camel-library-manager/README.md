@@ -2,7 +2,7 @@
 
 Shared Rust package for discovering and managing Camel source libraries from a GitHub catalog. It owns catalog validation, HTTPS downloads, installation, removal, and installed-source lookup. The Camel executable owns CLI commands; the runtime owns language parsing and import semantics. Studio can reuse the same API through the runtime's `libraries` re-export.
 
-Version: **0.2.0**, experimental preview. License: **Apache-2.0**.
+Version: **0.3.0**. License: **Apache-2.0**.
 
 [Repository](https://github.com/LuminaryLabs-Dev/Camel-Language) · [Package source](https://github.com/LuminaryLabs-Dev/Camel-Language/tree/main/packages/camel-library-manager) · [Library catalog](https://github.com/LuminaryLabs-Dev/Camel-Language/blob/main/libraries/index.json)
 
@@ -18,7 +18,7 @@ camel-library-manager = { git = "https://github.com/LuminaryLabs-Dev/Camel-Langu
 For a sibling crate in this repository:
 
 ```toml
-camel-library-manager = { path = "../packages/camel-library-manager", version = "0.2.0" }
+camel-library-manager = { path = "../packages/camel-library-manager", version = "0.3.0" }
 ```
 
 ```rust,no_run
@@ -35,7 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-Other APIs: `installed_root()`, `installed_library(name)`, `resolve_import(path)`, `remove(name)`, and `validate(library)`. `catalog(Some(source))` accepts a JSON file path or HTTP(S) URL. Discovery first reads the catalog beside an installed executable's `bin` directory, then the checked-out repository catalog, then GitHub. The package includes no interpreter, microphone backend, GUI, or standalone executable.
+Other APIs: `installed_root()`, `installed_library(name)`, `resolve_import(path)`, `remove(name)`, `validate(library)`, `create_lock(catalog, roots)`, `read_lock(path)`, `write_lock(path, lock)`, `verify_lock(lock)`, and `install_locked(lock)`. `catalog(Some(source))` accepts a JSON file path or HTTP(S) URL. Discovery first reads the catalog beside an installed executable's `bin` directory, then the checked-out repository catalog, then GitHub. The package includes no interpreter, microphone backend, GUI, or standalone executable.
 
 ## Camel CLI integration
 
@@ -48,6 +48,9 @@ camel library install standard
 camel library update standard
 camel library remove standard
 camel library list --catalog libraries/index.json
+camel library lock standard audio --output camel.lock
+camel library verify-lock camel.lock
+camel library install-locked camel.lock
 ```
 
 Help and removal work offline. Installed sources are imported with `using "@camel/standard/core.camel";`. Normal relative imports take precedence. Resolution performs no network calls and rejects paths outside the installed package.
@@ -56,11 +59,11 @@ Set `CAMEL_HOME` to choose a data directory. Libraries are stored beneath its `l
 
 ## Catalog and installation contract
 
-The [catalog contribution guide](../../libraries/README.md) documents adding source libraries. Schema version 2 entries provide a name, description, semantic library version, Git revision, GitHub repository, relative directory, and explicit file allowlist. Downloads use the declared revision, with a 60-second request timeout. `camel library update <name>` reads the latest remote catalog by default; pass `--catalog` for private catalogs or a local snapshot.
+The [catalog contribution guide](../../libraries/README.md) documents adding source libraries. Schema version 3 entries provide a name, description, semantic library version, immutable full commit SHA, GitHub repository, relative directory, explicit file allowlist, per-file SHA-256 checksums, and exact-version dependencies. Downloads use the declared revision and verify bytes before installation, with a 60-second request timeout. `camel library update <name>` reads the latest remote catalog by default; pass `--catalog` for a local snapshot.
 
 All files download into a temporary directory before the existing installation changes. Replacement uses a backup directory and restores it if the final rename fails. A subsequent install recovers a backup left by an interrupted replacement. Repeated installation replaces the snapshot; repeated removal returns `false` when already absent. Writes to the same package must be serialized by callers. Replacement spans multiple renames, so it is not a cross-process transaction.
 
-Catalog versions and Git revisions let source libraries advance independently of the runtime. The catalog entry pins the intended revision; the installation metadata records that entry. Dependency resolution, content checksums/signatures, and automatic update scheduling remain future work. Installing a library downloads source; importing trusted source into a workflow may grant it that workflow's normal capabilities.
+Catalog versions and commit revisions let source libraries advance independently of the runtime. `create_lock` resolves exact direct and transitive dependencies deterministically; `verify_lock` checks the package graph and pinned metadata offline; `install_locked` downloads in dependency order and checks every source digest. Lockfiles and checksums do not authenticate publishers. A failed multi-package install can leave earlier packages installed; rerunning is safe. Installing a library downloads source; importing trusted source into a workflow may grant it that workflow's normal capabilities.
 
 ## Build and checks
 

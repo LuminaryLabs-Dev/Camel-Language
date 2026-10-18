@@ -101,7 +101,7 @@ checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
 name = "camel-audio-runtime"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "base64 0.22.1",
  "camel-library-manager",
@@ -114,9 +114,10 @@ dependencies = [
 
 [[package]]
 name = "camel-library-manager"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "reqwest",
+ "ring",
  "serde",
  "serde_json",
  "tempfile",

@@ -14,7 +14,7 @@ cargo build --release --manifest-path studio/Cargo.toml --locked
 pwsh ./scripts/package-preview.ps1 -IncludeStudio
 ```
 
-Archive names include OS and architecture. Use `-Target <Rust triple>` for explicitly targeted builds; build all selected crates for that target first. Windows MSVC, Linux GNU, and macOS targets support x86_64 or aarch64 packaging. Each archive must contain binaries compiled for its target. The distribution workflow builds native artifacts on Windows, Linux, and macOS; it does not publish releases or change repository visibility.
+Archive names include OS and architecture. Use `-Target <Rust triple>` for explicitly targeted builds; build all selected crates for that target first. Windows MSVC, Linux GNU, and macOS targets support x86_64 or aarch64 packaging. Each archive must contain binaries compiled for its target. The current 0.3.0 candidate targets Windows only; its distribution workflow builds and verifies the Windows artifact and does not publish releases or change repository visibility.
 
 ## Ownership and failure behavior
 

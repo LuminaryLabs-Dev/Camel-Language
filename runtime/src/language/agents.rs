@@ -16,31 +16,71 @@ impl Context {
     }
     pub(crate) fn tool(&mut self, name: &str, args: Vec<Value>, site: &Site) -> Result<Value> {
         self.tick(site)?;
+        self.reserve_tool_call(site)?;
         let t = self.shared.compiled.program.tools[name].clone();
         let mut ctx = self.global_context();
         let args = ctx.bind_params(&t.params, args, site)?;
         let c = self.configuration(&t.config)?;
         let handler = required_text(&c, "handler", site)?;
+        let capability = self.shared.host.tools.capability(&handler, site)?;
+        if !self
+            .shared
+            .host
+            .cassette
+            .as_ref()
+            .is_some_and(|c| c.is_replay())
+        {
+            self.shared.host.require_approval(capability, site)?;
+        }
         let mut operation = Operation::begin(&self.shared.host, "tool", name, &handler, site);
-        let value =
+        let value = if let Some(cassette) = &self.shared.host.cassette {
+            let input = json!({
+                "handler": handler,
+                "args": args.iter().map(|value| value.to_json(site)).collect::<Result<Vec<_>>>()?
+            });
+            let result = cassette
+                .exchange("tool", input, || {
+                    self.shared
+                        .host
+                        .tools
+                        .invoke(&handler, &args, &self.shared.compiled.root, site)
+                        .and_then(|value| value.to_json(site))
+                        .map_err(|error| error.to_string())
+                })
+                .map_err(|error| Error::at(site, error))?;
+            Value::from_json(result)
+        } else {
             self.shared
                 .host
                 .tools
-                .invoke(&handler, &args, &self.shared.compiled.root, site)?;
+                .invoke(&handler, &args, &self.shared.compiled.root, site)?
+        };
         ensure_type(&self.shared.compiled.program, &t.returns, &value, site)?;
         operation.success = true;
         Ok(value)
     }
     pub(crate) fn agent(&mut self, name: &str, prompt: Value, site: &Site) -> Result<Value> {
-        let provider = self
-            .shared
-            .host
-            .provider
-            .clone()
-            .ok_or_else(|| Error::at(site, "no model provider configured"))?;
+        let cassette = self.shared.host.cassette.clone();
+        if !cassette.as_ref().is_some_and(|c| c.is_replay()) {
+            self.shared.host.require_approval(Capability::Model, site)?;
+        }
+        let provider = self.shared.host.provider.clone();
+        if provider.is_none() && !cassette.as_ref().is_some_and(|c| c.is_replay()) {
+            return Err(Error::at(site, "no model provider configured"));
+        }
+        let provider_capabilities = provider.as_ref().map(|p| p.capabilities()).unwrap_or(
+            super::host::ProviderCapabilities {
+                tool_calls: true,
+                structured_output: true,
+                token_usage: true,
+            },
+        );
         let declaration = self.shared.compiled.program.agents[name].clone();
         let c = self.configuration(&declaration)?;
-        let model = required_text(&c, "model", site)?;
+        let model = match self.shared.host.agent_models.get(name) {
+            Some(model) if !model.trim().is_empty() => model.clone(),
+            _ => required_text(&c, "model", site)?,
+        };
         if model.trim().is_empty() {
             return Err(Error::at(site, "agent model cannot be empty"));
         }
@@ -94,6 +134,9 @@ impl Context {
             let cfg = self.configuration(&t.config)?;
             let handler = required_text(&cfg, "handler", site)?;
             let capability = self.shared.host.tools.capability(&handler, site)?;
+            if !cassette.as_ref().is_some_and(|c| c.is_replay()) {
+                self.shared.host.require_approval(capability, site)?;
+            }
             authorize(tool, capability, &policy, &allowed, site)?;
             if max_tools == 0 {
                 return Err(Error::at(site, "policy prohibits all tool calls"));
@@ -113,11 +156,30 @@ impl Context {
                 .collect();
             definitions.push(json!({"type":"function","function":{"name":tool,"description":cfg.get("description").map(Value::display).unwrap_or_default(),"parameters":{"type":"object","properties":properties,"required":required,"additionalProperties":false}}}));
         }
+        if !definitions.is_empty() && !provider_capabilities.tool_calls {
+            return Err(Error::at(
+                site,
+                "provider does not support tool calls required by this agent",
+            ));
+        }
+        if response.is_some() && !provider_capabilities.structured_output {
+            return Err(Error::at(
+                site,
+                "provider does not support structured output required by this agent",
+            ));
+        }
+        if !provider_capabilities.token_usage {
+            return Err(Error::at(
+                site,
+                "provider does not report token usage required by the run budget",
+            ));
+        }
         let mut messages = vec![
             json!({"role":"system","content":system}),
             user_message(prompt, site)?,
         ];
         let mut tool_count = 0;
+        let mut used_tools = Vec::new();
         let mut operation = Operation::begin(&self.shared.host, "agent", name, &model, site);
         let mut ids = BTreeSet::new();
         for turn in 0..turns {
@@ -125,6 +187,7 @@ impl Context {
             for attempt in 0..=retries {
                 self.tick(site)?;
                 let mut payload = json!({"model":model,"messages":messages,"temperature":temperature,"stream":false});
+                payload["max_tokens"] = self.remaining_tokens().into();
                 if !definitions.is_empty() {
                     payload["tools"] = definitions.clone().into();
                 }
@@ -135,9 +198,28 @@ impl Context {
                     &format!("turn {}, attempt {}", turn + 1, attempt + 1),
                     site,
                 );
-                match provider.complete(payload) {
+                let completion = if let Some(cassette) = &cassette {
+                    cassette.exchange("model", payload.clone(), || {
+                        provider
+                            .as_ref()
+                            .ok_or_else(|| "no model provider configured".to_string())?
+                            .complete(payload)
+                    })
+                } else {
+                    provider
+                        .as_ref()
+                        .expect("provider checked above")
+                        .complete(payload)
+                };
+                match completion {
                     Ok(v) => {
                         request.success = true;
+                        let tokens = v
+                            .pointer("/usage/total_tokens")
+                            .and_then(Json::as_u64)
+                            .and_then(|count| usize::try_from(count).ok())
+                            .ok_or_else(|| Error::at(site, "provider advertised token usage but omitted usage.total_tokens"))?;
+                        self.record_tokens(tokens, site)?;
                         assistant = Some(v);
                         break;
                     }
@@ -214,6 +296,7 @@ impl Context {
                     self.tick(site)?;
                     let result = self.tool(&tool, args, site)?;
                     tool_count += 1;
+                    used_tools.push(tool);
                     messages.push(json!({"role":"tool","tool_call_id":id,"content":result.to_json(site)?.to_string()}));
                 }
                 continue;
@@ -231,12 +314,36 @@ impl Context {
                 Value::String(text.clone())
             };
             operation.success = true;
+            let provenance = Value::Object(
+                [
+                    ("agent".into(), Value::String(name.into())),
+                    ("model".into(), Value::String(model.clone())),
+                    ("file".into(), Value::String(site.file.clone())),
+                    ("line".into(), Value::Int(site.line as i64)),
+                    ("column".into(), Value::Int(site.column as i64)),
+                    ("offset".into(), Value::Int(site.offset as i64)),
+                    ("endLine".into(), Value::Int(site.end_line as i64)),
+                    ("endColumn".into(), Value::Int(site.end_column as i64)),
+                    ("endOffset".into(), Value::Int(site.end_offset as i64)),
+                    (
+                        "sourceFingerprint".into(),
+                        Value::String(self.shared.compiled.fingerprint()),
+                    ),
+                    (
+                        "tools".into(),
+                        Value::Array(used_tools.into_iter().map(Value::String).collect()),
+                    ),
+                ]
+                .into_iter()
+                .collect(),
+            );
             return Ok(Value::Object(
                 [
                     ("text".into(), Value::String(text)),
                     ("data".into(), data),
                     ("model".into(), Value::String(model)),
                     ("toolCalls".into(), Value::Int(tool_count as i64)),
+                    ("provenance".into(), provenance),
                 ]
                 .into_iter()
                 .collect(),
@@ -308,6 +415,12 @@ fn authorize(
         Capability::FileWrite => "allowFileWrite",
         Capability::Network => "allowNetwork",
         Capability::Shell => "allowShell",
+        Capability::Model | Capability::Microphone => {
+            return Err(Error::at(
+                s,
+                "agent tools cannot declare model or microphone capability",
+            ))
+        }
     };
     if flag(p, key, s)? {
         Ok(())

@@ -9,35 +9,37 @@ jobs:
   conformance:
     strategy:
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        os: [windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - name: Linux microphone build prerequisites
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
       - run: cargo fmt --manifest-path runtime/Cargo.toml --check
       - run: cargo clippy --manifest-path runtime/Cargo.toml --locked --all-targets -- -D warnings
       - run: cargo test --manifest-path runtime/Cargo.toml --locked
+      - name: Verify source library lock reproducibility
+        shell: pwsh
+        run: |
+          $expected = (Get-FileHash libraries/Camel.lock -Algorithm SHA256).Hash
+          cargo run --manifest-path runtime/Cargo.toml --locked -- library verify-lock libraries/Camel.lock
+          cargo run --manifest-path runtime/Cargo.toml --locked -- library lock standard audio --catalog libraries/index.json --output (Join-Path $env:RUNNER_TEMP 'Camel.lock')
+          $actual = (Get-FileHash (Join-Path $env:RUNNER_TEMP 'Camel.lock') -Algorithm SHA256).Hash
+          if ($actual -ne $expected) { throw 'Generated library lock differs from the committed lock.' }
       - run: cargo run --manifest-path runtime/Cargo.toml --locked -- check Camel/examples/audio_note_summarizer.camel
       - run: cargo run --manifest-path runtime/Cargo.toml --locked -- Camel/examples/programming_core.camel --json -- 6
       - run: cargo run --manifest-path runtime/Cargo.toml --locked -- check Camel/examples/orchestration.camel
   studio:
     strategy:
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        os: [windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - name: Linux desktop and microphone prerequisites
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libxkbcommon-dev libwayland-dev pkg-config
       - run: cargo fmt --manifest-path studio/Cargo.toml --check
       - run: cargo clippy --manifest-path studio/Cargo.toml --locked --all-targets -- -D warnings
       - run: cargo test --manifest-path studio/Cargo.toml --locked

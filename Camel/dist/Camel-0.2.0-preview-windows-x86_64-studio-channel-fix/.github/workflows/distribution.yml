@@ -1,0 +1,67 @@
+name: Camel distributions
+on:
+  workflow_dispatch:
+    inputs:
+      include_studio:
+        description: Include Camel Studio in the installer bundle
+        type: boolean
+        default: true
+  pull_request:
+    paths: ["runtime/**", "studio/**", "installer/**", "packages/**", "libraries/**", "docs/**", "conformance/**", "Camel/examples/**", "Camel/docs/**", "README.md", "LICENSE", ".gitignore", "scripts/package-preview.ps1", "scripts/install.sh", ".github/workflows/distribution.yml"]
+permissions:
+  contents: read
+jobs:
+  distribution:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-22.04, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Linux native build prerequisites
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libxkbcommon-dev libwayland-dev libgl1-mesa-dev pkg-config
+      - run: cargo fmt --manifest-path installer/Cargo.toml --check
+      - run: cargo clippy --manifest-path installer/Cargo.toml --locked --all-targets -- -D warnings
+      - run: cargo test --manifest-path installer/Cargo.toml --locked
+      - run: cargo build --release --manifest-path runtime/Cargo.toml --locked
+      - run: cargo build --release --manifest-path installer/Cargo.toml --locked
+      - name: Build Studio
+        if: github.event_name == 'pull_request' || inputs.include_studio
+        run: cargo build --release --manifest-path studio/Cargo.toml --locked
+      - name: Package native distribution
+        shell: pwsh
+        run: |
+          $includeStudio = '${{ github.event_name == 'pull_request' || inputs.include_studio }}' -eq 'true'
+          ./scripts/package-preview.ps1 -IncludeStudio:$includeStudio
+      - name: Verify native install and repeated upgrade
+        shell: pwsh
+        run: |
+          $archive = @(Get-ChildItem Camel/dist/*-setup.zip)[0].FullName
+          $bundle = Join-Path $env:RUNNER_TEMP 'camel-setup-bundle'
+          $destination = Join-Path $env:RUNNER_TEMP 'camel-setup-installation'
+          [IO.Compression.ZipFile]::ExtractToDirectory($archive, $bundle)
+          $setup = if ($IsWindows) { Join-Path $bundle 'Camel-Setup.exe' } else { Join-Path $bundle 'camel-setup' }
+          if (-not $IsWindows) { chmod u+x $setup }
+          foreach ($attempt in 1..2) {
+            if ($IsWindows) {
+              $process = Start-Process -FilePath $setup -ArgumentList @('--bundle', ('"' + $bundle + '"'), '--install-to', ('"' + $destination + '"'), '--no-path') -WindowStyle Hidden -Wait -PassThru
+              if ($process.ExitCode -ne 0) { throw "Installer failed on pass $attempt with exit $($process.ExitCode)." }
+            } else {
+              & $setup --bundle $bundle --install-to $destination --no-path
+              if ($LASTEXITCODE -ne 0) { throw "Installer failed on pass $attempt." }
+            }
+          }
+          $camel = Join-Path $destination $(if ($IsWindows) { 'bin/camel.exe' } else { 'bin/camel' })
+          & $camel --version
+          if ($LASTEXITCODE -ne 0) { throw 'Installed Camel did not start.' }
+          & $camel library list
+          if ($LASTEXITCODE -ne 0) { throw 'Installed Camel could not read its bundled catalog.' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Camel-Setup-${{ runner.os }}-${{ runner.arch }}
+          path: Camel/dist/*-setup.zip
+          if-no-files-found: error

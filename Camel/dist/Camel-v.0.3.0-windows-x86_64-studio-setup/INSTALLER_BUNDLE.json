@@ -1,0 +1,120 @@
+{
+  "os": "windows",
+  "arch": "x86_64",
+  "files": [
+    {
+      "sha256": "edbdb1c9eec61c66bae275be2a3dfe68333dac2ffd92073dffeac403b2e9624a",
+      "path": "bin/camel-audio-runtime.exe"
+    },
+    {
+      "sha256": "3deb505bf0452e2930e48e05ceb17980f8e28c73b2bdee931b7f62539ca816ca",
+      "path": "bin/camel-studio.exe"
+    },
+    {
+      "sha256": "8bcdb435815fb371b4b5f0edc9f669fbdd6026702a81f5ff783281a8a2704632",
+      "path": "bin/camel.exe"
+    },
+    {
+      "sha256": "e8313850681ea4460ab6410a325586da393f6409623be8f63efc5123bf045341",
+      "path": "Camel/examples/agent_planner.camel"
+    },
+    {
+      "sha256": "f59de421a70450876845256ca64729af0478a093055bd9ac9163b0a9f36cee3a",
+      "path": "Camel/examples/audio_note_summarizer_installed.camel"
+    },
+    {
+      "sha256": "45dfb5a105b323b375042e039de0d81250019f0454f8492dd9e497f93eae390e",
+      "path": "Camel/examples/audio_note_summarizer.camel"
+    },
+    {
+      "sha256": "2007cc06eb25121a59d87d47d9a579fc76055d2d49bfb9a441dfc97c64a8dba2",
+      "path": "Camel/examples/modules/integer_math.camel"
+    },
+    {
+      "sha256": "92a05948dbdede20ca26e821002335b04141ac4ec0b9efb0bfc5ba96e0479994",
+      "path": "Camel/examples/multi_model_review.camel"
+    },
+    {
+      "sha256": "d1bde841ae4c4e5352c2065fff7caf2c53b4fd46e78a8a9e1169d7865e67c3aa",
+      "path": "Camel/examples/orchestration.camel"
+    },
+    {
+      "sha256": "42660045831e230cf6a46cf2a01e8bdcdb605425fcd4408f827fe0bfdee5e7e1",
+      "path": "Camel/examples/programming_core.camel"
+    },
+    {
+      "sha256": "8fa44f769717127709f6578520a422ceb96ce9473fc185ecba6f678ca2a12f82",
+      "path": "Camel/examples/stress_five_models.camel"
+    },
+    {
+      "sha256": "bf90f5bc255ef8a7e66bbb47372c287bc8b4aebecaa2ef538fed51178d6ed6c7",
+      "path": "docs/CAMEL_0.3.0_GUIDEBOOK.md"
+    },
+    {
+      "sha256": "07d20084d268b4248713cfc98defe0df9cb0de2acec53157b678da164f1aaf3d",
+      "path": "docs/images/camel-logo-512.png"
+    },
+    {
+      "sha256": "c1663a6f66018fd4ffe389746a4b2f10d392f90d9de91ed78a0a8054bac9d130",
+      "path": "docs/images/camel-logo.png"
+    },
+    {
+      "sha256": "7c94e3c384cd52307cf91a45c47d621c4829595d7a7f7dd696cceed4a3ed810a",
+      "path": "docs/images/camel-studio.png"
+    },
+    {
+      "sha256": "4f1fa19dd3925f9aad638b6999814ad9b49f20c92b1b91deeb7eab6a9a57afa6",
+      "path": "docs/INSTALLATION.md"
+    },
+    {
+      "sha256": "78295a7c26bccfedd331292c8b2b0c9e8bd8bb688272a3febb73889a47548582",
+      "path": "docs/LANGUAGE_SPEC.md"
+    },
+    {
+      "sha256": "d21ecca3a9c2672f34211ee9d28ca536949458913396a9cbc353526ad66ca8ad",
+      "path": "docs/REPOSITORY_RECOVERY.md"
+    },
+    {
+      "sha256": "2961576df55255d96b3b87673b00a638cf1ec58ced46292a5269d8ed5c9df624",
+      "path": "installer/README.md"
+    },
+    {
+      "sha256": "5c5dd58abf7ed75c44d330eee056e49aaae69fe0727a1670aa9350b40f8e338b",
+      "path": "libraries/audio/note_summarizer.camel"
+    },
+    {
+      "sha256": "5af0c5e8b06e6e0491bf1b05fd14da731cb891c2f2f545b26d263e6db105dcf4",
+      "path": "libraries/Camel.lock"
+    },
+    {
+      "sha256": "0c7502d5dc532ecdf27c54eb93b6cbe73265aeeacfa455831e578decfab88e28",
+      "path": "libraries/index.json"
+    },
+    {
+      "sha256": "514d16025062cb6e4b98713a461aac6eb5e50873a719dd1cd8b1cfb46184d48d",
+      "path": "libraries/README.md"
+    },
+    {
+      "sha256": "7d5a41437e1bcb1a9bce86a037d5c3a076abf8b9b8fd489ec214915ca334be2b",
+      "path": "libraries/standard/core.camel"
+    },
+    {
+      "sha256": "313605fbac6945e9324d4825470796b5b7dbc012f523fdc181f6e6fd234eb88f",
+      "path": "LICENSE"
+    },
+    {
+      "sha256": "cef7292d54bb53b7cbf5d62e062bc019612451981e78da6049f06d7a61ce66cb",
+      "path": "packages/camel-library-manager/README.md"
+    },
+    {
+      "sha256": "1ecf332a255d072f1c6d39d7404edd6d91ff522498a1dba0950a002c3551f8ec",
+      "path": "packages/README.md"
+    },
+    {
+      "sha256": "8e5ad8cf6a0b6bc26bf68596faff8d0a3df2874522979dd252a558c6a61d4880",
+      "path": "README.md"
+    }
+  ],
+  "version": "v.0.3.0",
+  "formatVersion": 1
+}

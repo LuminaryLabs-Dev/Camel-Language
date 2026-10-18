@@ -1,0 +1,87 @@
+name: Camel distributions
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths: ["runtime/**", "studio/**", "installer/**", "packages/**", "libraries/**", "docs/**", "conformance/**", "Camel/examples/**", "Camel/docs/**", "README.md", "LICENSE", ".gitignore", "scripts/**", ".github/workflows/**"]
+  workflow_dispatch:
+    inputs:
+      include_studio:
+        description: Include Camel Studio in the installer bundle
+        type: boolean
+        default: true
+  pull_request:
+    paths: ["runtime/**", "studio/**", "installer/**", "packages/**", "libraries/**", "docs/**", "conformance/**", "Camel/examples/**", "Camel/docs/**", "README.md", "LICENSE", ".gitignore", "scripts/**", ".github/workflows/**"]
+permissions:
+  contents: read
+jobs:
+  distribution:
+    strategy:
+      matrix:
+        os: [windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --manifest-path runtime/Cargo.toml --check
+      - run: cargo clippy --manifest-path runtime/Cargo.toml --locked --all-targets -- -D warnings
+      - run: cargo test --manifest-path runtime/Cargo.toml --locked
+      - run: cargo fmt --manifest-path studio/Cargo.toml --check
+      - run: cargo clippy --manifest-path studio/Cargo.toml --locked --all-targets -- -D warnings
+      - run: cargo test --manifest-path studio/Cargo.toml --locked
+      - run: cargo fmt --manifest-path packages/camel-library-manager/Cargo.toml --check
+      - run: cargo clippy --manifest-path packages/camel-library-manager/Cargo.toml --locked --all-targets -- -D warnings
+      - run: cargo test --manifest-path packages/camel-library-manager/Cargo.toml --locked
+      - run: cargo fmt --manifest-path installer/Cargo.toml --check
+      - run: cargo clippy --manifest-path installer/Cargo.toml --locked --all-targets -- -D warnings
+      - run: cargo test --manifest-path installer/Cargo.toml --locked
+      - run: cargo build --release --manifest-path runtime/Cargo.toml --locked
+      - name: Verify reproducible source library lock
+        shell: pwsh
+        run: |
+          $expected = (Get-FileHash libraries/Camel.lock -Algorithm SHA256).Hash
+          cargo run --manifest-path runtime/Cargo.toml --locked -- library verify-lock libraries/Camel.lock
+          cargo run --manifest-path runtime/Cargo.toml --locked -- library lock standard audio --catalog libraries/index.json --output (Join-Path $env:RUNNER_TEMP 'Camel.lock')
+          $actual = (Get-FileHash (Join-Path $env:RUNNER_TEMP 'Camel.lock') -Algorithm SHA256).Hash
+          if ($actual -ne $expected) { throw 'Generated library lock differs from the committed lock.' }
+      - run: cargo build --release --manifest-path installer/Cargo.toml --locked
+      - name: Build Studio
+        if: github.event_name == 'pull_request' || inputs.include_studio
+        run: cargo build --release --manifest-path studio/Cargo.toml --locked
+      - name: Package native distribution
+        shell: pwsh
+        run: |
+          $includeStudio = '${{ github.event_name == 'pull_request' || inputs.include_studio }}' -eq 'true'
+          ./scripts/package-preview.ps1 -IncludeStudio:$includeStudio
+      - name: Verify native install and repeated upgrade
+        shell: pwsh
+        run: |
+          $archive = @(Get-ChildItem Camel/dist/*-setup.zip)[0].FullName
+          $bundle = Join-Path $env:RUNNER_TEMP 'camel-setup-bundle'
+          $destination = Join-Path $env:RUNNER_TEMP 'camel-setup-installation'
+          [IO.Compression.ZipFile]::ExtractToDirectory($archive, $bundle)
+          $setup = if ($IsWindows) { Join-Path $bundle 'Camel-Setup.exe' } else { Join-Path $bundle 'camel-setup' }
+          if (-not $IsWindows) { chmod u+x $setup }
+          foreach ($attempt in 1..2) {
+            if ($IsWindows) {
+              $process = Start-Process -FilePath $setup -ArgumentList @('--bundle', ('"' + $bundle + '"'), '--install-to', ('"' + $destination + '"'), '--no-path') -WindowStyle Hidden -Wait -PassThru
+              if ($process.ExitCode -ne 0) { throw "Installer failed on pass $attempt with exit $($process.ExitCode)." }
+            } else {
+              & $setup --bundle $bundle --install-to $destination --no-path
+              if ($LASTEXITCODE -ne 0) { throw "Installer failed on pass $attempt." }
+            }
+          }
+          $camel = Join-Path $destination $(if ($IsWindows) { 'bin/camel.exe' } else { 'bin/camel' })
+          & $camel --version
+          if ($LASTEXITCODE -ne 0) { throw 'Installed Camel did not start.' }
+          & $camel library list
+          if ($LASTEXITCODE -ne 0) { throw 'Installed Camel could not read its bundled catalog.' }
+          & $camel library verify-lock (Join-Path $destination 'libraries/Camel.lock')
+          if ($LASTEXITCODE -ne 0) { throw 'Installed Camel could not verify the bundled source lock.' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Camel-Setup-${{ runner.os }}-${{ runner.arch }}
+          path: Camel/dist/*-setup.zip
+          if-no-files-found: error

@@ -1,7 +1,7 @@
 //! Shared catalog, installation, and installed-source lookup for Camel clients.
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
     time::Duration,
@@ -20,6 +20,7 @@ pub struct Catalog {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Library {
     pub name: String,
     pub description: String,
@@ -28,6 +29,25 @@ pub struct Library {
     pub repository: String,
     pub path: String,
     pub files: Vec<String>,
+    #[serde(default)]
+    pub file_checksums: BTreeMap<String, String>,
+    #[serde(default)]
+    pub dependencies: Vec<LibraryDependency>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct LibraryDependency {
+    pub name: String,
+    pub version: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PackageLock {
+    pub lock_version: u32,
+    pub roots: Vec<LibraryDependency>,
+    /// Dependencies precede the packages that require them.
+    pub libraries: Vec<Library>,
 }
 
 pub fn installed_root() -> Option<PathBuf> {
@@ -93,8 +113,8 @@ pub fn catalog(source: Option<&str>) -> Result<Catalog> {
             .text()?,
     };
     let catalog: Catalog = serde_json::from_str(&text)?;
-    if catalog.schema_version != 2 {
-        return Err("unsupported Camel catalog schemaVersion; expected 2".into());
+    if catalog.schema_version != 3 {
+        return Err("unsupported Camel catalog schemaVersion; expected 3".into());
     }
     let mut names = BTreeSet::new();
     for library in &catalog.libraries {
@@ -127,6 +147,7 @@ pub fn install(library: &Library) -> Result<PathBuf> {
             relative
         );
         let bytes = client.get(url).send()?.error_for_status()?.bytes()?;
+        verify_file_checksum(library, relative, &bytes)?;
         if let Some(parent) = target.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -165,6 +186,180 @@ pub fn install(library: &Library) -> Result<PathBuf> {
     Ok(destination)
 }
 
+/// Resolve exact direct and transitive versions into a deterministic lock.
+pub fn create_lock(catalog: &Catalog, roots: &[String]) -> Result<PackageLock> {
+    if catalog.schema_version != 3 {
+        return Err("unsupported Camel catalog schemaVersion; expected 3".into());
+    }
+    let mut root_names = roots.to_vec();
+    root_names.sort();
+    root_names.dedup();
+    if root_names.is_empty() {
+        return Err("a lock needs at least one root library".into());
+    }
+    let by_name = catalog
+        .libraries
+        .iter()
+        .map(|library| (library.name.as_str(), library))
+        .collect::<BTreeMap<_, _>>();
+    if by_name.len() != catalog.libraries.len() {
+        return Err("catalog contains duplicate library names".into());
+    }
+    let mut lock_roots = Vec::new();
+    let mut ordered = Vec::new();
+    let mut complete = BTreeSet::new();
+    let mut active = BTreeSet::new();
+    for name in root_names {
+        let library = by_name
+            .get(name.as_str())
+            .ok_or_else(|| format!("library '{name}' is not in the catalog"))?;
+        lock_roots.push(LibraryDependency {
+            name: name.clone(),
+            version: library.version.clone(),
+        });
+        add_dependencies(library, &by_name, &mut active, &mut complete, &mut ordered)?;
+    }
+    Ok(PackageLock {
+        lock_version: 1,
+        roots: lock_roots,
+        libraries: ordered,
+    })
+}
+
+fn add_dependencies(
+    library: &Library,
+    by_name: &BTreeMap<&str, &Library>,
+    active: &mut BTreeSet<String>,
+    complete: &mut BTreeSet<String>,
+    ordered: &mut Vec<Library>,
+) -> Result<()> {
+    validate(library)?;
+    if complete.contains(&library.name) {
+        return Ok(());
+    }
+    if !active.insert(library.name.clone()) {
+        return Err(format!("library dependency cycle includes '{}'", library.name).into());
+    }
+    let mut dependencies = library.dependencies.clone();
+    dependencies.sort_by(|left, right| left.name.cmp(&right.name));
+    for dependency in dependencies {
+        let required = by_name.get(dependency.name.as_str()).ok_or_else(|| {
+            format!(
+                "library '{}' requires missing '{}'",
+                library.name, dependency.name
+            )
+        })?;
+        if required.version != dependency.version {
+            return Err(format!(
+                "library '{}' requires {} {}, catalog provides {}",
+                library.name, dependency.name, dependency.version, required.version
+            )
+            .into());
+        }
+        add_dependencies(required, by_name, active, complete, ordered)?;
+    }
+    active.remove(&library.name);
+    complete.insert(library.name.clone());
+    let mut canonical = library.clone();
+    canonical
+        .dependencies
+        .sort_by(|left, right| left.name.cmp(&right.name));
+    ordered.push(canonical);
+    Ok(())
+}
+
+/// Validate lock pins, exact dependency versions, content checksums, and acyclic order.
+pub fn verify_lock(lock: &PackageLock) -> Result<()> {
+    if lock.lock_version != 1 || lock.roots.is_empty() {
+        return Err("unsupported or empty Camel lockfile".into());
+    }
+    if lock
+        .roots
+        .windows(2)
+        .any(|pair| pair[0].name >= pair[1].name)
+    {
+        return Err("lock roots must be unique and sorted by package name".into());
+    }
+    let mut names = BTreeSet::new();
+    let by_name = lock
+        .libraries
+        .iter()
+        .map(|library| (library.name.as_str(), library))
+        .collect::<BTreeMap<_, _>>();
+    if by_name.len() != lock.libraries.len() {
+        return Err("lockfile contains duplicate library names".into());
+    }
+    for library in &lock.libraries {
+        validate(library)?;
+        if library
+            .dependencies
+            .windows(2)
+            .any(|pair| pair[0].name >= pair[1].name)
+        {
+            return Err(format!(
+                "dependencies for '{}' must be unique and sorted",
+                library.name
+            )
+            .into());
+        }
+        names.insert(library.name.as_str());
+    }
+    for root in &lock.roots {
+        let library = by_name
+            .get(root.name.as_str())
+            .ok_or_else(|| format!("lock root '{}' is missing", root.name))?;
+        if library.version != root.version {
+            return Err(format!("lock root '{}' has the wrong version", root.name).into());
+        }
+    }
+    let mut ordered = Vec::new();
+    let mut active = BTreeSet::new();
+    let mut complete = BTreeSet::new();
+    for root in &lock.roots {
+        let library = by_name[root.name.as_str()];
+        add_dependencies(library, &by_name, &mut active, &mut complete, &mut ordered)?;
+    }
+    if ordered.len() != names.len() {
+        return Err("lockfile contains packages not reachable from its roots".into());
+    }
+    if lock
+        .libraries
+        .iter()
+        .map(|library| library.name.as_str())
+        .ne(ordered.iter().map(|library| library.name.as_str()))
+    {
+        return Err("lockfile packages are not in deterministic dependency order".into());
+    }
+    Ok(())
+}
+
+pub fn read_lock(path: impl AsRef<Path>) -> Result<PackageLock> {
+    let lock: PackageLock = serde_json::from_slice(&fs::read(path)?)?;
+    verify_lock(&lock)?;
+    Ok(lock)
+}
+
+pub fn write_lock(path: impl AsRef<Path>, lock: &PackageLock) -> Result<()> {
+    verify_lock(lock)?;
+    let path = path.as_ref();
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent)?;
+    let mut pending = tempfile::NamedTempFile::new_in(parent)?;
+    serde_json::to_writer_pretty(&mut pending, lock)?;
+    pending.as_file().sync_all()?;
+    pending.persist(path).map_err(|error| error.error)?;
+    Ok(())
+}
+
+/// Install every package pinned in a verified lock, in dependency order.
+pub fn install_locked(lock: &PackageLock) -> Result<Vec<PathBuf>> {
+    verify_lock(lock)?;
+    lock.libraries.iter().map(install).collect()
+}
+
 /// Remove an installation; returns false when it is already absent.
 pub fn remove(name: &str) -> Result<bool> {
     if !valid_name(name) {
@@ -199,6 +394,7 @@ pub fn validate(library: &Library) -> Result<()> {
                     .all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
         });
     let mut files = BTreeSet::new();
+    let mut dependencies = BTreeSet::new();
     if !valid_name(&library.name)
         || !valid_repository
         || !valid_relative(&library.path)
@@ -210,10 +406,54 @@ pub fn validate(library: &Library) -> Result<()> {
                 || file == ".camel-library.json"
                 || !files.insert(file.to_ascii_lowercase())
         })
+        || !is_immutable_revision(&library.revision)
+        || library.file_checksums.len() != library.files.len()
+        || library.files.iter().any(|file| {
+            library
+                .file_checksums
+                .get(file)
+                .is_none_or(|checksum| !valid_sha256(checksum))
+        })
+        || library.dependencies.iter().any(|dependency| {
+            !valid_name(&dependency.name)
+                || !valid_version(&dependency.version)
+                || !dependencies.insert(dependency.name.as_str())
+        })
     {
-        return Err(format!("invalid library '{}': expected a safe name, semantic version, Git ref, GitHub HTTPS repository, relative directory, and unique file allowlist", library.name).into());
+        return Err(format!("invalid library '{}': expected a safe name, semantic version, immutable commit revision, GitHub HTTPS repository, relative directory, unique file allowlist, SHA-256 checksums for every file, and valid dependencies", library.name).into());
     }
     Ok(())
+}
+
+fn verify_file_checksum(library: &Library, relative: &str, bytes: &[u8]) -> Result<()> {
+    let expected = library.file_checksums.get(relative).ok_or_else(|| {
+        format!(
+            "library '{}' has no checksum for '{relative}'",
+            library.name
+        )
+    })?;
+    let actual = ring::digest::digest(&ring::digest::SHA256, bytes);
+    let actual = actual
+        .as_ref()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    if !actual.eq_ignore_ascii_case(expected) {
+        return Err(format!(
+            "checksum mismatch for library '{}' file '{relative}'",
+            library.name
+        )
+        .into());
+    }
+    Ok(())
+}
+
+fn valid_sha256(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn is_immutable_revision(value: &str) -> bool {
+    matches!(value.len(), 40 | 64) && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn client() -> Result<reqwest::blocking::Client> {
@@ -273,10 +513,12 @@ mod tests {
             name: "standard".into(),
             description: "Helpers".into(),
             version: "1.0.0".into(),
-            revision: "main".into(),
+            revision: "0123456789abcdef0123456789abcdef01234567".into(),
             repository: "https://github.com/LuminaryLabs-Dev/Camel-Language".into(),
             path: "libraries/standard".into(),
             files: vec!["core.camel".into()],
+            file_checksums: BTreeMap::from([("core.camel".into(), "a".repeat(64))]),
+            dependencies: Vec::new(),
         }
     }
 
@@ -315,8 +557,125 @@ mod tests {
         item.version = "1.2.3".into();
         item.revision = "../../main".into();
         assert!(validate(&item).is_err());
-        item.revision = "release/audio-v1".into();
+        item.revision = "0123456789abcdef0123456789abcdef01234567".into();
         assert!(validate(&item).is_ok());
+    }
+
+    #[test]
+    fn lock_resolution_is_deterministic_and_dependency_first() {
+        let mut dependency = library();
+        dependency.name = "base".into();
+        dependency.version = "1.2.0".into();
+        dependency.path = "libraries/base".into();
+        let mut root = library();
+        root.dependencies = vec![LibraryDependency {
+            name: "base".into(),
+            version: "1.2.0".into(),
+        }];
+        let catalog = Catalog {
+            schema_version: 3,
+            libraries: vec![root, dependency],
+        };
+        let first = create_lock(&catalog, &["standard".into()]).unwrap();
+        let second = create_lock(&catalog, &["standard".into()]).unwrap();
+        assert_eq!(
+            serde_json::to_vec(&first).unwrap(),
+            serde_json::to_vec(&second).unwrap()
+        );
+        assert_eq!(first.libraries[0].name, "base");
+        assert_eq!(first.libraries[1].name, "standard");
+        verify_lock(&first).unwrap();
+    }
+
+    #[test]
+    fn dependency_cycles_are_rejected() {
+        let mut first = library();
+        first.dependencies = vec![LibraryDependency {
+            name: "second".into(),
+            version: "1.0.0".into(),
+        }];
+        let mut second = library();
+        second.name = "second".into();
+        second.dependencies = vec![LibraryDependency {
+            name: "standard".into(),
+            version: "1.0.0".into(),
+        }];
+        let catalog = Catalog {
+            schema_version: 3,
+            libraries: vec![first, second],
+        };
+        assert!(create_lock(&catalog, &["standard".into()]).is_err());
+    }
+
+    #[test]
+    fn checked_in_catalog_has_verified_lock_metadata() {
+        let catalog = catalog(Some(CATALOG_PATH)).unwrap();
+        let lock = create_lock(&catalog, &["standard".into(), "audio".into()]).unwrap();
+        verify_lock(&lock).unwrap();
+        assert_eq!(lock.libraries.len(), 2);
+    }
+
+    #[test]
+    fn lock_rejects_dependency_version_mismatch_and_checksum_corruption() {
+        let mut root = library();
+        root.dependencies = vec![LibraryDependency {
+            name: "missing".into(),
+            version: "1.0.0".into(),
+        }];
+        let catalog = Catalog {
+            schema_version: 3,
+            libraries: vec![root.clone()],
+        };
+        assert!(create_lock(&catalog, &["standard".into()]).is_err());
+        root.dependencies.clear();
+        let lock = PackageLock {
+            lock_version: 1,
+            roots: vec![LibraryDependency {
+                name: "standard".into(),
+                version: "1.0.0".into(),
+            }],
+            libraries: vec![root],
+        };
+        let mut corrupted = lock;
+        corrupted.libraries[0]
+            .file_checksums
+            .insert("core.camel".into(), "b".repeat(64));
+        assert!(verify_file_checksum(&corrupted.libraries[0], "core.camel", b"contents").is_err());
+        assert!(verify_lock(&corrupted).is_ok());
+    }
+
+    #[test]
+    fn lock_round_trips_through_atomic_file_write() {
+        let lock = create_lock(
+            &Catalog {
+                schema_version: 3,
+                libraries: vec![library()],
+            },
+            &["standard".into()],
+        )
+        .unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("camel.lock");
+        write_lock(&path, &lock).unwrap();
+        assert_eq!(read_lock(&path).unwrap().libraries[0].name, "standard");
+        write_lock(&path, &lock).unwrap();
+        assert_eq!(read_lock(&path).unwrap().roots, lock.roots);
+    }
+
+    #[test]
+    fn source_install_checksum_matches_actual_content() {
+        let mut item = library();
+        let digest = ring::digest::digest(&ring::digest::SHA256, b"contents");
+        item.file_checksums.insert(
+            "core.camel".into(),
+            digest
+                .as_ref()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect(),
+        );
+        assert!(verify_file_checksum(&item, "core.camel", b"contents").is_ok());
+        assert!(verify_file_checksum(&item, "core.camel", b"changed").is_err());
     }
 
     #[test]

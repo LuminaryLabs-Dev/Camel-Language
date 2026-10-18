@@ -1,8 +1,10 @@
 //! Owns exactly one child. Pipe readers never touch UI state; Drop always reaps it.
-use crate::worker::Message;
+use crate::worker::{Message, RunArtifacts};
 use std::{
+    collections::BTreeMap,
+    fs,
     io::{BufRead, BufReader, Read, Write},
-    path::Path,
+    path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::mpsc::{self, Receiver, SyncSender},
     thread,
@@ -20,6 +22,13 @@ pub struct Runner {
     readers: usize,
     exit: Option<std::process::ExitStatus>,
     pub stopped: bool,
+    cancel_file: PathBuf,
+}
+pub struct RunnerSettings<'a> {
+    pub endpoint: &'a str,
+    pub agent_models: &'a BTreeMap<String, String>,
+    pub approvals: &'a [String],
+    pub artifacts: &'a RunArtifacts,
 }
 impl Runner {
     pub fn start(
@@ -28,14 +37,48 @@ impl Runner {
         entry: &str,
         args: &[String],
         endpoint: &str,
+        agent_models: &BTreeMap<String, String>,
+        approvals: &[String],
     ) -> Result<Self, String> {
+        Self::start_with_artifacts(
+            executable,
+            source,
+            entry,
+            args,
+            RunnerSettings {
+                endpoint,
+                agent_models,
+                approvals,
+                artifacts: &RunArtifacts::default(),
+            },
+        )
+    }
+    pub fn start_with_artifacts(
+        executable: &Path,
+        source: &Path,
+        entry: &str,
+        args: &[String],
+        settings: RunnerSettings<'_>,
+    ) -> Result<Self, String> {
+        static NEXT_CANCEL_FILE: std::sync::atomic::AtomicU64 =
+            std::sync::atomic::AtomicU64::new(1);
+        let cancel_file = std::env::temp_dir().join(format!(
+            "camel-cancel-{}-{}.flag",
+            std::process::id(),
+            NEXT_CANCEL_FILE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        fs::write(&cancel_file, b"0").map_err(|e| e.to_string())?;
         let mut command = Command::new(executable);
         command
             .arg("--worker")
             .arg(source)
             .arg(entry)
             .arg(serde_json::to_string(args).map_err(|e| e.to_string())?)
-            .env("CAMEL_LM_ENDPOINT", endpoint)
+            .arg(&cancel_file)
+            .arg(serde_json::to_string(settings.agent_models).map_err(|e| e.to_string())?)
+            .arg(serde_json::to_string(settings.approvals).map_err(|e| e.to_string())?)
+            .arg(serde_json::to_string(settings.artifacts).map_err(|e| e.to_string())?)
+            .env("CAMEL_LM_ENDPOINT", settings.endpoint)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -44,7 +87,10 @@ impl Runner {
             use std::os::windows::process::CommandExt;
             command.creation_flags(0x08000000);
         }
-        let mut child = command.spawn().map_err(|e| e.to_string())?;
+        let mut child = command.spawn().map_err(|e| {
+            let _ = fs::remove_file(&cancel_file);
+            e.to_string()
+        })?;
         let stdout = child.stdout.take().unwrap();
         let stderr = child.stderr.take().unwrap();
         let (tx, rx) = mpsc::sync_channel(256);
@@ -55,6 +101,7 @@ impl Runner {
         {
             let _ = child.kill();
             let _ = child.wait();
+            let _ = fs::remove_file(&cancel_file);
             return Err(e.to_string());
         }
         if let Err(e) = thread::Builder::new()
@@ -63,6 +110,7 @@ impl Runner {
         {
             let _ = child.kill();
             let _ = child.wait();
+            let _ = fs::remove_file(&cancel_file);
             return Err(e.to_string());
         }
         Ok(Self {
@@ -71,6 +119,7 @@ impl Runner {
             readers: 2,
             exit: None,
             stopped: false,
+            cancel_file,
         })
     }
     pub fn poll(&mut self) -> Result<(Vec<Update>, Option<bool>), String> {
@@ -103,9 +152,7 @@ impl Runner {
         if self.stopped || self.exit.is_some() {
             return Ok(());
         }
-        if self.child.try_wait().map_err(|e| e.to_string())?.is_none() {
-            self.child.kill().map_err(|e| e.to_string())?;
-        }
+        fs::write(&self.cancel_file, b"1").map_err(|e| e.to_string())?;
         self.stopped = true;
         Ok(())
     }
@@ -119,6 +166,7 @@ impl Drop for Runner {
             let _ = self.child.kill();
             let _ = self.child.wait();
         }
+        let _ = fs::remove_file(&self.cancel_file);
     }
 }
 fn read(stream: impl Read, tx: SyncSender<Update>, protocol: bool) {

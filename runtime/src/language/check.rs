@@ -7,9 +7,35 @@ pub const BUILTINS: &[&str] = &[
 ];
 pub const LANGUAGE_VERSION: &str = "0.2";
 const KEYWORDS: &[&str] = &[
-    "record", "agent", "policy", "tool", "workflow", "using", "import", "if", "else", "while",
-    "for", "foreach", "in", "return", "break", "continue", "throw", "try", "catch", "finally",
-    "var", "new", "spawn", "await", "true", "false", "null", "version",
+    "record",
+    "agent",
+    "policy",
+    "tool",
+    "workflow",
+    "using",
+    "import",
+    "if",
+    "else",
+    "while",
+    "for",
+    "foreach",
+    "in",
+    "return",
+    "break",
+    "continue",
+    "throw",
+    "try",
+    "catch",
+    "finally",
+    "var",
+    "new",
+    "spawn",
+    "await",
+    "true",
+    "false",
+    "null",
+    "version",
+    "checkpoint",
 ];
 fn binding_name(name: &str, site: &Site) -> Result<()> {
     if KEYWORDS.contains(&name) {
@@ -23,6 +49,65 @@ fn type_error(site: &Site, message: impl Into<String>) -> Error {
     let mut error = Error::at(site, message);
     error.phase = DiagnosticPhase::Type;
     error
+}
+
+fn validate_checkpoints(function: &Function) -> Result<()> {
+    fn nested(statement: &Stmt) -> Result<()> {
+        match &statement.kind {
+            StmtKind::Checkpoint(_) => Err(Error::at(
+                &statement.site,
+                "checkpoint must be a direct statement in a workflow body",
+            )),
+            StmtKind::Block(items) => items.iter().try_for_each(nested),
+            StmtKind::If(_, yes, no) => {
+                nested(yes)?;
+                if let Some(no) = no {
+                    nested(no)?;
+                }
+                Ok(())
+            }
+            StmtKind::While(_, body) | StmtKind::Each(_, _, _, body) => nested(body),
+            StmtKind::For(init, _, step, body) => {
+                nested(init)?;
+                nested(step)?;
+                nested(body)
+            }
+            StmtKind::Try(body, catch, finally) => {
+                nested(body)?;
+                if let Some((_, catch)) = catch {
+                    nested(catch)?;
+                }
+                if let Some(finally) = finally {
+                    nested(finally)?;
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+    let StmtKind::Block(items) = &function.body.kind else {
+        return Ok(());
+    };
+    let mut labels = BTreeSet::new();
+    for item in items {
+        if let StmtKind::Checkpoint(label) = &item.kind {
+            if !function.workflow {
+                return Err(Error::at(
+                    &item.site,
+                    "checkpoint is only allowed in a workflow",
+                ));
+            }
+            if !labels.insert(label) {
+                return Err(Error::at(
+                    &item.site,
+                    format!("duplicate checkpoint '{label}'"),
+                ));
+            }
+        } else {
+            nested(item)?;
+        }
+    }
+    Ok(())
 }
 
 /// Collect independent declaration-level diagnostics without stopping at the
@@ -64,6 +149,7 @@ pub(super) fn check_diagnostics(p: &Program) -> Vec<(Error, &'static str)> {
                 "object",
                 "Audio",
                 "AgentResult",
+                "EvidenceProvenance",
                 "Agent",
                 "Function",
                 "Task",
@@ -108,6 +194,9 @@ pub(super) fn check_diagnostics(p: &Program) -> Vec<(Error, &'static str)> {
         if let Err(error) = checked {
             diagnostics.push((error, CHECK_CODE));
         } else {
+            if let Err(error) = validate_checkpoints(f) {
+                diagnostics.push((error, CHECK_CODE));
+            }
             diagnostics.extend(
                 super::static_types::check_function_diagnostics(p, f)
                     .into_iter()
@@ -228,6 +317,7 @@ impl Checker<'_> {
                     "object",
                     "Audio",
                     "AgentResult",
+                    "EvidenceProvenance",
                     "Agent",
                     "Function",
                     "Tool",
@@ -395,6 +485,7 @@ impl Checker<'_> {
                 }
             }
             StmtKind::Expr(e) | StmtKind::Throw(e) => self.expr(e, scopes)?,
+            StmtKind::Checkpoint(_) => {}
             StmtKind::Return(e) => {
                 if let Some(e) = e {
                     if *returns == Type::named("void") {

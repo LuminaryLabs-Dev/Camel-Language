@@ -1,9 +1,9 @@
+use camel_audio_runtime::language::{Diagnostic, Severity};
 use eframe::egui::{
     self,
     text::{CCursor, CCursorRange, LayoutJob},
     Color32, FontId, Stroke, TextFormat,
 };
-use camel_audio_runtime::language::{Diagnostic, Severity};
 
 pub fn character_at(text: &str, line: usize, column: usize) -> usize {
     let mut row = 1;
@@ -105,7 +105,7 @@ pub fn show(
         });
     (changed, position)
 }
-fn highlight(source: &str, diagnostics: &[Diagnostic]) -> LayoutJob {
+pub(super) fn highlight(source: &str, diagnostics: &[Diagnostic]) -> LayoutJob {
     let mut job = LayoutJob::default();
     let mut index = 0;
     while index < source.len() {

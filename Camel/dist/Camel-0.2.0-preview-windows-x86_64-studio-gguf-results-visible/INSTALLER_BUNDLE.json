@@ -1,0 +1,108 @@
+{
+  "os": "windows",
+  "files": [
+    {
+      "path": "bin/camel-audio-runtime.exe",
+      "sha256": "55abd0ab07ac415deb05ea6a880ba8dc0e5544e8b1b1b54547c5b551e73af2b4"
+    },
+    {
+      "path": "bin/camel-studio.exe",
+      "sha256": "cb0bce1d91264b9d71fe2ee76c3d698719851adbe57728adb57edb1c848b7fb1"
+    },
+    {
+      "path": "bin/camel.exe",
+      "sha256": "f46207638a04bd4512a32212b8b895bf48c1be492d71beb73f0c1d0f811bf4ed"
+    },
+    {
+      "path": "Camel/examples/agent_planner.camel",
+      "sha256": "e8313850681ea4460ab6410a325586da393f6409623be8f63efc5123bf045341"
+    },
+    {
+      "path": "Camel/examples/audio_note_summarizer_installed.camel",
+      "sha256": "f59de421a70450876845256ca64729af0478a093055bd9ac9163b0a9f36cee3a"
+    },
+    {
+      "path": "Camel/examples/audio_note_summarizer.camel",
+      "sha256": "45dfb5a105b323b375042e039de0d81250019f0454f8492dd9e497f93eae390e"
+    },
+    {
+      "path": "Camel/examples/modules/integer_math.camel",
+      "sha256": "2007cc06eb25121a59d87d47d9a579fc76055d2d49bfb9a441dfc97c64a8dba2"
+    },
+    {
+      "path": "Camel/examples/multi_model_review.camel",
+      "sha256": "92a05948dbdede20ca26e821002335b04141ac4ec0b9efb0bfc5ba96e0479994"
+    },
+    {
+      "path": "Camel/examples/orchestration.camel",
+      "sha256": "d1bde841ae4c4e5352c2065fff7caf2c53b4fd46e78a8a9e1169d7865e67c3aa"
+    },
+    {
+      "path": "Camel/examples/programming_core.camel",
+      "sha256": "42660045831e230cf6a46cf2a01e8bdcdb605425fcd4408f827fe0bfdee5e7e1"
+    },
+    {
+      "path": "docs/images/camel-logo-512.png",
+      "sha256": "07d20084d268b4248713cfc98defe0df9cb0de2acec53157b678da164f1aaf3d"
+    },
+    {
+      "path": "docs/images/camel-logo.png",
+      "sha256": "c1663a6f66018fd4ffe389746a4b2f10d392f90d9de91ed78a0a8054bac9d130"
+    },
+    {
+      "path": "docs/images/camel-studio.png",
+      "sha256": "7c94e3c384cd52307cf91a45c47d621c4829595d7a7f7dd696cceed4a3ed810a"
+    },
+    {
+      "path": "docs/INSTALLATION.md",
+      "sha256": "cb70c6d22fe74f264dffce90f756b7233d3bf8e3da9799248c55a81eb62fb60e"
+    },
+    {
+      "path": "docs/LANGUAGE_SPEC.md",
+      "sha256": "521ec89d65bae623a972d9ae14ad6dc91a15a93d28f4a2dbde0fa7edbd3a157c"
+    },
+    {
+      "path": "docs/REPOSITORY_RECOVERY.md",
+      "sha256": "d21ecca3a9c2672f34211ee9d28ca536949458913396a9cbc353526ad66ca8ad"
+    },
+    {
+      "path": "installer/README.md",
+      "sha256": "50ca559a4b848579aa905671d99d5fe2665d89c913214f7846b6f1caf3b43ae7"
+    },
+    {
+      "path": "libraries/audio/note_summarizer.camel",
+      "sha256": "5c5dd58abf7ed75c44d330eee056e49aaae69fe0727a1670aa9350b40f8e338b"
+    },
+    {
+      "path": "libraries/index.json",
+      "sha256": "5c8d16234d132aa12c7dd9b662575d0b1e1ec7b6df5c3f6c14c5f6df8c96ae2f"
+    },
+    {
+      "path": "libraries/README.md",
+      "sha256": "892f532634d50225332a928e991b90cec53b7d63b38023947f045b6dcc3f3f62"
+    },
+    {
+      "path": "libraries/standard/core.camel",
+      "sha256": "7d5a41437e1bcb1a9bce86a037d5c3a076abf8b9b8fd489ec214915ca334be2b"
+    },
+    {
+      "path": "LICENSE",
+      "sha256": "313605fbac6945e9324d4825470796b5b7dbc012f523fdc181f6e6fd234eb88f"
+    },
+    {
+      "path": "packages/camel-library-manager/README.md",
+      "sha256": "b36fe7c5437fa340cc6cd76e19380c747c415b67c824fc8943ed67dc24196821"
+    },
+    {
+      "path": "packages/README.md",
+      "sha256": "1ecf332a255d072f1c6d39d7404edd6d91ff522498a1dba0950a002c3551f8ec"
+    },
+    {
+      "path": "README.md",
+      "sha256": "a58024936b9bbf5e65cdcad8a108c80f29f3522be28a6564e605182b0e818811"
+    }
+  ],
+  "arch": "x86_64",
+  "formatVersion": 1,
+  "version": "0.2.0-preview"
+}

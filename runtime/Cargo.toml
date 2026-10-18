@@ -1,6 +1,6 @@
 [package]
 name = "camel-audio-runtime"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.88"
 description = "Source-backed Camel interpreter with first-class agents and tools"
@@ -12,7 +12,7 @@ name = "camel"
 path = "src/main.rs"
 
 [dependencies]
-camel-library-manager = { version = "0.2.0", path = "../packages/camel-library-manager" }
+camel-library-manager = { version = "0.3.0", path = "../packages/camel-library-manager" }
 base64 = "0.22"
 cpal = "0.15"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json"] }

@@ -1,12 +1,13 @@
 use super::{
     check::{arity, BUILTINS},
-    host::{count, emit, ExecutionEvent, Host, Operation},
+    host::{count, emit, Capability, ExecutionEvent, Host, Operation},
     syntax::*,
     value::{drain, ensure_type, wait, TaskState, Value},
     CompiledProgram,
 };
 use std::{
     collections::BTreeMap,
+    path::PathBuf,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc, Condvar, Mutex,
@@ -19,6 +20,9 @@ pub struct Limits {
     pub steps: usize,
     pub call_depth: usize,
     pub tasks: usize,
+    pub tool_calls: usize,
+    pub tokens: usize,
+    pub deadline: std::time::Duration,
 }
 impl Default for Limits {
     fn default() -> Self {
@@ -26,17 +30,26 @@ impl Default for Limits {
             steps: 100_000,
             call_depth: 128,
             tasks: 64,
+            tool_calls: 256,
+            tokens: 32_768,
+            deadline: std::time::Duration::from_secs(600),
         }
     }
 }
 pub struct Execution {
     pub value: Value,
     pub logs: Vec<String>,
+    pub tokens_used: usize,
+    pub tool_calls_used: usize,
+    pub source_fingerprint: String,
+    pub cassette_fingerprint: Option<String>,
 }
 pub struct Engine {
     compiled: CompiledProgram,
     host: Host,
     limits: Limits,
+    checkpoint_path: Option<PathBuf>,
+    resume_path: Option<PathBuf>,
 }
 impl Engine {
     pub fn new(compiled: CompiledProgram, host: Host) -> Self {
@@ -44,30 +57,114 @@ impl Engine {
             compiled,
             host,
             limits: Limits::default(),
+            checkpoint_path: None,
+            resume_path: None,
         }
     }
     pub fn with_limits(mut self, limits: Limits) -> Self {
         self.limits = limits;
         self
     }
+    /// Persist state at declared workflow checkpoint statements.
+    pub fn with_checkpoint_file(mut self, path: impl Into<PathBuf>) -> Self {
+        self.checkpoint_path = Some(path.into());
+        self
+    }
+    /// Resume at the statement immediately after the saved checkpoint.
+    pub fn resume_from(mut self, path: impl Into<PathBuf>) -> Self {
+        let path = path.into();
+        self.checkpoint_path = Some(path.clone());
+        self.resume_path = Some(path);
+        self
+    }
     pub fn run(&self, entry: &str, args: Vec<Value>) -> Result<Execution> {
         self.compiled.entry_parameters(entry)?;
+        let fingerprint = self.compiled.fingerprint();
+        let resume = self
+            .resume_path
+            .as_ref()
+            .map(|path| {
+                let bytes = std::fs::read(path).map_err(|e| {
+                    Error::at(
+                        &self.compiled.program.functions[entry].site,
+                        format!("cannot read checkpoint: {e}"),
+                    )
+                })?;
+                let state: Checkpoint = serde_json::from_slice(&bytes).map_err(|e| {
+                    Error::at(
+                        &self.compiled.program.functions[entry].site,
+                        format!("invalid checkpoint: {e}"),
+                    )
+                })?;
+                if state.version != 1 {
+                    return Err(Error::at(
+                        &self.compiled.program.functions[entry].site,
+                        format!("unsupported checkpoint version {}", state.version),
+                    ));
+                }
+                if state.entry != entry || state.fingerprint != fingerprint {
+                    return Err(Error::at(
+                        &self.compiled.program.functions[entry].site,
+                        "checkpoint does not match this workflow source",
+                    ));
+                }
+                Ok(state)
+            })
+            .transpose()?;
         let site = self.compiled.program.functions[entry].site.clone();
+        if let Some(cassette) = &self.host.cassette {
+            cassette
+                .bind_source(&fingerprint)
+                .map_err(|message| Error::at(&site, message))?;
+        }
+        if let (Some(cassette), Some(checkpoint)) = (&self.host.cassette, &resume) {
+            cassette
+                .seek(checkpoint.cassette_cursor)
+                .map_err(|message| Error::at(&site, message))?;
+        }
+        let steps_used = resume.as_ref().map_or(0, |state| state.steps_used);
+        let tokens_used = resume.as_ref().map_or(0, |state| state.tokens_used);
+        let tool_calls_used = resume.as_ref().map_or(0, |state| state.tool_calls_used);
+        if steps_used > self.limits.steps
+            || tokens_used > self.limits.tokens
+            || tool_calls_used > self.limits.tool_calls
+        {
+            return Err(Error::at(
+                &site,
+                "checkpoint already exceeds one or more configured run budgets",
+            ));
+        }
+        let elapsed_before =
+            std::time::Duration::from_millis(resume.as_ref().map_or(0, |state| state.elapsed_ms));
         let mut operation = Operation::begin(&self.host, "workflow", entry, "", &site);
         let shared = Arc::new(Shared {
             compiled: self.compiled.clone(),
             host: self.host.clone(),
             limits: self.limits.clone(),
-            fuel: AtomicUsize::new(self.limits.steps),
+            fuel: AtomicUsize::new(self.limits.steps - steps_used),
             tasks: Mutex::new(Vec::new()),
-            logs: Mutex::new(Vec::new()),
+            logs: Mutex::new(
+                resume
+                    .as_ref()
+                    .map_or_else(Vec::new, |state| state.logs.clone()),
+            ),
             microphone: Mutex::new(()),
+            started: std::time::Instant::now(),
+            elapsed_before,
+            tool_calls: AtomicUsize::new(tool_calls_used),
+            tokens: AtomicUsize::new(tokens_used),
+            entry: entry.into(),
+            fingerprint,
+            checkpoint_path: self.checkpoint_path.clone(),
+            resume: Mutex::new(resume),
         });
         let mut ctx = Context {
             shared: shared.clone(),
             scopes: vec![BTreeMap::new()],
             depth: 0,
+            checkpoint_block: false,
         };
+        ctx.emit_budget();
         let mut result = ctx.function(entry, args, &site);
         // Structured lifetime: even un-awaited tasks finish before run() returns.
         let mut index = 0;
@@ -90,10 +187,21 @@ impl Engine {
             }
         }
         let logs = shared.logs.lock().unwrap().clone();
+        if result.is_ok() {
+            if let Some(cassette) = &self.host.cassette {
+                if let Err(message) = cassette.ensure_consumed() {
+                    result = Err(Error::at(&site, message));
+                }
+            }
+        }
         operation.success = result.is_ok();
         Ok(Execution {
             value: result?,
             logs,
+            tokens_used: shared.tokens.load(Ordering::Acquire),
+            tool_calls_used: shared.tool_calls.load(Ordering::Acquire),
+            source_fingerprint: self.compiled.fingerprint(),
+            cassette_fingerprint: self.host.cassette.as_ref().map(|c| c.fingerprint()),
         })
     }
 }
@@ -105,6 +213,34 @@ pub(crate) struct Shared {
     tasks: Mutex<Vec<TaskState>>,
     logs: Mutex<Vec<String>>,
     microphone: Mutex<()>,
+    started: std::time::Instant,
+    elapsed_before: std::time::Duration,
+    tool_calls: AtomicUsize,
+    tokens: AtomicUsize,
+    entry: String,
+    fingerprint: String,
+    checkpoint_path: Option<PathBuf>,
+    resume: Mutex<Option<Checkpoint>>,
+}
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct Checkpoint {
+    version: u32,
+    entry: String,
+    fingerprint: String,
+    label: String,
+    next_statement: usize,
+    scopes: Vec<BTreeMap<String, SavedBinding>>,
+    logs: Vec<String>,
+    steps_used: usize,
+    tokens_used: usize,
+    tool_calls_used: usize,
+    elapsed_ms: u64,
+    cassette_cursor: usize,
+}
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct SavedBinding {
+    ty: Type,
+    value: serde_json::Value,
 }
 #[derive(Clone)]
 struct Binding {
@@ -116,6 +252,7 @@ pub(crate) struct Context {
     pub shared: Arc<Shared>,
     scopes: Vec<BTreeMap<String, Binding>>,
     depth: usize,
+    checkpoint_block: bool,
 }
 #[derive(Clone)]
 enum Flow {
@@ -125,14 +262,32 @@ enum Flow {
     Continue,
 }
 impl Context {
+    fn elapsed(&self) -> std::time::Duration {
+        self.shared
+            .elapsed_before
+            .saturating_add(self.shared.started.elapsed())
+    }
     pub(crate) fn global_context(&self) -> Self {
         Self {
             shared: self.shared.clone(),
             scopes: vec![BTreeMap::new()],
             depth: self.depth,
+            checkpoint_block: false,
         }
     }
     pub(crate) fn tick(&self, site: &Site) -> Result<()> {
+        let fail = if self.shared.host.cancellation.is_cancelled() {
+            Some("execution cancelled")
+        } else if self.elapsed() >= self.shared.limits.deadline {
+            Some("execution deadline exceeded")
+        } else {
+            None
+        };
+        if let Some(message) = fail {
+            let mut error = Error::at(site, message);
+            error.fatal = true;
+            return Err(error);
+        }
         let fuel = &self.shared.fuel;
         let mut remaining = fuel.load(Ordering::Relaxed);
         loop {
@@ -147,6 +302,49 @@ impl Context {
                 Err(observed) => remaining = observed,
             }
         }
+    }
+    pub(crate) fn reserve_tool_call(&self, site: &Site) -> Result<()> {
+        reserve_budget(
+            &self.shared.tool_calls,
+            self.shared.limits.tool_calls,
+            1,
+            site,
+            "tool-call budget exhausted",
+        )?;
+        self.emit_budget();
+        Ok(())
+    }
+    pub(crate) fn record_tokens(&self, count: usize, site: &Site) -> Result<()> {
+        reserve_budget(
+            &self.shared.tokens,
+            self.shared.limits.tokens,
+            count,
+            site,
+            "token budget exhausted",
+        )?;
+        self.emit_budget();
+        Ok(())
+    }
+    pub(crate) fn remaining_tokens(&self) -> usize {
+        self.shared
+            .limits
+            .tokens
+            .saturating_sub(self.shared.tokens.load(Ordering::Acquire))
+    }
+    fn emit_budget(&self) {
+        let millis =
+            |duration: std::time::Duration| duration.as_millis().min(u64::MAX as u128) as u64;
+        emit(
+            &self.shared.host,
+            ExecutionEvent::Budget {
+                tokens_used: self.shared.tokens.load(Ordering::Acquire),
+                tokens_limit: self.shared.limits.tokens,
+                tool_calls_used: self.shared.tool_calls.load(Ordering::Acquire),
+                tool_calls_limit: self.shared.limits.tool_calls,
+                elapsed_ms: millis(self.elapsed()),
+                deadline_ms: millis(self.shared.limits.deadline),
+            },
+        );
     }
     fn name(&self, name: &str, s: &Site) -> Result<Value> {
         for scope in self.scopes.iter().rev() {
@@ -336,6 +534,7 @@ impl Context {
             shared: self.shared.clone(),
             scopes: vec![BTreeMap::new()],
             depth: self.depth + 1,
+            checkpoint_block: n == self.shared.entry,
         };
         child.bind_params(&f.params, args, s)?;
         let value = match child.stmt(&f.body)? {
@@ -382,9 +581,62 @@ impl Context {
         self.tick(&s.site)?;
         match &s.kind {
             StmtKind::Block(items) => {
+                let checkpoint_block = std::mem::take(&mut self.checkpoint_block);
                 self.scopes.push(BTreeMap::new());
+                let mut start = 0;
+                if checkpoint_block {
+                    if let Some(checkpoint) = self.shared.resume.lock().unwrap().take() {
+                        if checkpoint.next_statement == 0
+                            || checkpoint.next_statement > items.len()
+                            || !matches!(
+                                items.get(checkpoint.next_statement - 1).map(|s| &s.kind),
+                                Some(StmtKind::Checkpoint(label)) if label == &checkpoint.label
+                            )
+                        {
+                            self.scopes.pop();
+                            return Err(Error::at(&s.site, "checkpoint position is invalid"));
+                        }
+                        if checkpoint.scopes.len() != 2 {
+                            self.scopes.pop();
+                            return Err(Error::at(&s.site, "checkpoint scope stack is invalid"));
+                        }
+                        let mut restored = Vec::with_capacity(checkpoint.scopes.len());
+                        for scope in checkpoint.scopes {
+                            let mut bindings = BTreeMap::new();
+                            for (name, binding) in scope {
+                                let value = Value::from_json(binding.value);
+                                ensure_type(
+                                    &self.shared.compiled.program,
+                                    &binding.ty,
+                                    &value,
+                                    &s.site,
+                                )?;
+                                bindings.insert(
+                                    name,
+                                    Binding {
+                                        value,
+                                        ty: binding.ty,
+                                    },
+                                );
+                            }
+                            restored.push(bindings);
+                        }
+                        self.scopes = restored;
+                        start = checkpoint.next_statement;
+                    }
+                }
                 let result = (|| {
-                    for s in items {
+                    for (index, s) in items.iter().enumerate().skip(start) {
+                        if let StmtKind::Checkpoint(label) = &s.kind {
+                            if !checkpoint_block {
+                                return Err(Error::at(
+                                    &s.site,
+                                    "checkpoint must be a direct statement in the entry workflow",
+                                ));
+                            }
+                            self.save_checkpoint(label, index + 1, &s.site)?;
+                            continue;
+                        }
                         let r = self.stmt(s)?;
                         if !matches!(r, Flow::Next) {
                             return Ok(r);
@@ -412,6 +664,10 @@ impl Context {
                 self.eval(e)?;
                 Ok(Flow::Next)
             }
+            StmtKind::Checkpoint(_) => Err(Error::at(
+                &s.site,
+                "checkpoint must be a direct statement in the entry workflow",
+            )),
             StmtKind::If(c, b, other) => {
                 if self.eval(c)?.boolean(&c.site)? {
                     self.scoped(b)
@@ -513,6 +769,78 @@ impl Context {
             }
         }
     }
+    fn save_checkpoint(&self, label: &str, next_statement: usize, site: &Site) -> Result<()> {
+        let path =
+            self.shared.checkpoint_path.as_ref().ok_or_else(|| {
+                Error::at(site, "checkpoint statement requires --checkpoint <path>")
+            })?;
+        if self
+            .shared
+            .tasks
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|task| !task.2.load(Ordering::Acquire))
+        {
+            return Err(Error::at(
+                site,
+                "checkpoint requires spawned tasks to finish or be awaited",
+            ));
+        }
+        let scopes = self
+            .scopes
+            .iter()
+            .map(|scope| {
+                scope
+                    .iter()
+                    .map(|(name, binding)| {
+                        Ok((
+                            name.clone(),
+                            SavedBinding {
+                                ty: binding.ty.clone(),
+                                value: binding.value.to_json(site)?,
+                            },
+                        ))
+                    })
+                    .collect::<Result<BTreeMap<_, _>>>()
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let checkpoint = Checkpoint {
+            version: 1,
+            entry: self.shared.entry.clone(),
+            fingerprint: self.shared.fingerprint.clone(),
+            label: label.into(),
+            next_statement,
+            scopes,
+            logs: self.shared.logs.lock().unwrap().clone(),
+            steps_used: self.shared.limits.steps - self.shared.fuel.load(Ordering::Acquire),
+            tokens_used: self.shared.tokens.load(Ordering::Acquire),
+            tool_calls_used: self.shared.tool_calls.load(Ordering::Acquire),
+            elapsed_ms: self.elapsed().as_millis().min(u64::MAX as u128) as u64,
+            cassette_cursor: self
+                .shared
+                .host
+                .cassette
+                .as_ref()
+                .map_or(0, |cassette| cassette.cursor()),
+        };
+        let parent = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| std::path::Path::new("."));
+        let mut pending = tempfile::NamedTempFile::new_in(parent)
+            .map_err(|e| Error::at(site, format!("cannot create checkpoint: {e}")))?;
+        serde_json::to_writer_pretty(&mut pending, &checkpoint)
+            .map_err(|e| Error::at(site, format!("cannot encode checkpoint: {e}")))?;
+        pending
+            .as_file()
+            .sync_all()
+            .map_err(|e| Error::at(site, format!("cannot sync checkpoint: {e}")))?;
+        pending
+            .persist(path)
+            .map_err(|e| Error::at(site, format!("cannot save checkpoint: {}", e.error)))?;
+        Ok(())
+    }
     fn assign(&mut self, target: &Expr, expression: &Expr, op: Option<&str>) -> Result<()> {
         let mut path = Vec::new();
         let name = self.assignment_path(target, &mut path)?;
@@ -582,9 +910,24 @@ impl Context {
                     return Err(Error::at(s, "env expects name and optional default"));
                 }
                 let name = args[0].text(s)?;
-                match std::env::var(name) {
-                    Ok(v) => Ok(Value::String(v)),
-                    Err(_) => Ok(args.get(1).cloned().unwrap_or(Value::String(String::new()))),
+                let default = args.get(1).cloned().unwrap_or(Value::String(String::new()));
+                if let Some(cassette) = &self.shared.host.cassette {
+                    let recorded = cassette
+                        .exchange(
+                            "environment",
+                            serde_json::json!({"name":name,"default":default.to_json(s)?}),
+                            || {
+                                Ok(std::env::var(&name)
+                                    .map(serde_json::Value::String)
+                                    .unwrap_or(default.to_json(s).map_err(|e| e.to_string())?))
+                            },
+                        )
+                        .map_err(|error| Error::at(s, error))?;
+                    Ok(Value::from_json(recorded))
+                } else {
+                    Ok(Value::String(
+                        std::env::var(name).unwrap_or_else(|_| default.display()),
+                    ))
                 }
             }
             "json.stringify" => {
@@ -662,21 +1005,70 @@ impl Context {
             }
             "clock.now" => {
                 count(&args, 0, s)?;
-                Ok(Value::Int(
-                    std::time::SystemTime::now()
+                let now = || -> Result<i64> {
+                    Ok(std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .map_err(|e| Error::at(s, e.to_string()))?
-                        .as_secs() as i64,
-                ))
+                        .as_secs() as i64)
+                };
+                if let Some(cassette) = &self.shared.host.cassette {
+                    let value = cassette
+                        .exchange("clock", serde_json::Value::Null, || {
+                            now()
+                                .map(serde_json::Value::from)
+                                .map_err(|e| e.to_string())
+                        })
+                        .map_err(|e| Error::at(s, e))?;
+                    Ok(Value::from_json(value))
+                } else {
+                    now().map(Value::Int)
+                }
             }
             "audio.load" => {
                 count(&args, 1, s)?;
-                crate::AudioInput::from_path(&self.shared.compiled.root, &args[0].text(s)?)
-                    .map(|a| Value::Audio(Arc::new(a)))
-                    .map_err(|e| Error::at(s, e.to_string()))
+                if !self
+                    .shared
+                    .host
+                    .cassette
+                    .as_ref()
+                    .is_some_and(|c| c.is_replay())
+                {
+                    self.shared.host.require_approval(Capability::FileRead, s)?;
+                }
+                let requested = args[0].text(s)?;
+                if let Some(cassette) = &self.shared.host.cassette {
+                    let value = cassette
+                        .exchange("audio_load", serde_json::Value::String(requested.clone()), || {
+                            let audio = crate::AudioInput::from_path(&self.shared.compiled.root, &requested)
+                                .map_err(|e| e.to_string())?;
+                            Ok(serde_json::json!({"format":audio.format,"data":audio.data_base64}))
+                        })
+                        .map_err(|e| Error::at(s, e))?;
+                    let audio = crate::AudioInput {
+                        path: self.shared.compiled.root.join(requested),
+                        format: value["format"].as_str().unwrap_or("wav").into(),
+                        data_base64: value["data"].as_str().unwrap_or_default().into(),
+                    };
+                    Ok(Value::Audio(Arc::new(audio)))
+                } else {
+                    crate::AudioInput::from_path(&self.shared.compiled.root, &requested)
+                        .map(|a| Value::Audio(Arc::new(a)))
+                        .map_err(|e| Error::at(s, e.to_string()))
+                }
             }
             "record" => {
                 count(&args, 1, s)?;
+                if !self
+                    .shared
+                    .host
+                    .cassette
+                    .as_ref()
+                    .is_some_and(|c| c.is_replay())
+                {
+                    self.shared
+                        .host
+                        .require_approval(Capability::Microphone, s)?;
+                }
                 let seconds = args[0].integer(s)?;
                 if !(0..=3600).contains(&seconds) {
                     return Err(Error::at(
@@ -705,6 +1097,17 @@ impl Context {
                             "recording destination must be a file in an existing directory",
                         ));
                     }
+                    if !self
+                        .shared
+                        .host
+                        .cassette
+                        .as_ref()
+                        .is_some_and(|c| c.is_replay())
+                    {
+                        self.shared
+                            .host
+                            .require_approval(Capability::FileWrite, s)?;
+                    }
                 }
                 let mut operation = Operation::begin(
                     &self.shared.host,
@@ -715,11 +1118,33 @@ impl Context {
                         .unwrap_or_else(|| "until Enter".into()),
                     s,
                 );
-                let audio = (self.shared.host.recorder)(duration).map_err(|e| Error::at(s, e))?;
-                if let Some(path) = &self.shared.host.save_recording {
-                    audio
-                        .save_wav(path)
-                        .map_err(|e| Error::at(s, e.to_string()))?;
+                let audio = if let Some(cassette) = &self.shared.host.cassette {
+                    let value = cassette
+                        .exchange("microphone", serde_json::json!({"seconds":duration}), || {
+                            let audio = (self.shared.host.recorder)(duration)?;
+                            Ok(serde_json::json!({"format":audio.format,"data":audio.data_base64}))
+                        })
+                        .map_err(|e| Error::at(s, e))?;
+                    crate::AudioInput {
+                        path: std::path::PathBuf::new(),
+                        format: value["format"].as_str().unwrap_or("wav").into(),
+                        data_base64: value["data"].as_str().unwrap_or_default().into(),
+                    }
+                } else {
+                    (self.shared.host.recorder)(duration).map_err(|e| Error::at(s, e))?
+                };
+                if !self
+                    .shared
+                    .host
+                    .cassette
+                    .as_ref()
+                    .is_some_and(|c| c.is_replay())
+                {
+                    if let Some(path) = &self.shared.host.save_recording {
+                        audio
+                            .save_wav(path)
+                            .map_err(|e| Error::at(s, e.to_string()))?;
+                    }
                 }
                 operation.success = true;
                 Ok(Value::Audio(Arc::new(audio)))
@@ -775,6 +1200,26 @@ impl Context {
                 }
             }
             _ => Err(Error::at(s, format!("unknown method '{n}'"))),
+        }
+    }
+}
+fn reserve_budget(
+    counter: &AtomicUsize,
+    limit: usize,
+    amount: usize,
+    site: &Site,
+    message: &str,
+) -> Result<()> {
+    let mut used = counter.load(Ordering::Acquire);
+    loop {
+        let Some(next) = used.checked_add(amount).filter(|next| *next <= limit) else {
+            let mut error = Error::at(site, message);
+            error.fatal = true;
+            return Err(error);
+        };
+        match counter.compare_exchange_weak(used, next, Ordering::AcqRel, Ordering::Acquire) {
+            Ok(_) => return Ok(()),
+            Err(observed) => used = observed,
         }
     }
 }

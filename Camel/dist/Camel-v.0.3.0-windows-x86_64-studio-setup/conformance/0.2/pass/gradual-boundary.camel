@@ -1,0 +1,7 @@
+version "0.2";
+
+workflow int Main() {
+    any decoded = json.parse("{\"count\":4}");
+    int count = decoded;
+    return count;
+}

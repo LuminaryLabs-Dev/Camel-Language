@@ -36,6 +36,6 @@ Each OS needs matching native binaries. The graphical wizard uses OpenGL and nee
 
 ## Build a distribution
 
-Build the runtime and installer in release mode, plus Studio if needed. Run `pwsh ./scripts/package-preview.ps1 [-IncludeStudio] [-Target <Rust triple>]`. It creates an OS/architecture-specific setup ZIP, preserves existing archives, and includes `INSTALLER_BUNDLE.json` and `BUNDLE_MANIFEST.json` checksums. CI builds native Windows/Linux/macOS artifacts through GitHub Actions; no automatic public publishing occurs.
+Build the runtime and installer in release mode, plus Studio if needed. Run `pwsh ./scripts/package-preview.ps1 [-IncludeStudio] [-Target <Rust triple>]`. It creates an OS/architecture-specific setup ZIP, preserves existing archives, and includes `INSTALLER_BUNDLE.json` and `BUNDLE_MANIFEST.json` checksums. The current 0.3.0 candidate and CI target Windows only; Linux and macOS packaging are outside this release scope. CI does not publish releases automatically.
 
 Platform behavior follows [Windows user environment variables](https://learn.microsoft.com/en-us/dotnet/api/system.environment.setenvironmentvariable), [Bash startup files](https://www.gnu.org/software/bash/manual/html_node/Bash-Startup-Files), [zsh startup files](https://zsh.sourceforge.io/Doc/Release/Files.html), and [fish PATH configuration](https://fishshell.com/docs/current/tutorial.html).

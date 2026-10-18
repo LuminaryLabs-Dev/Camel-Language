@@ -499,7 +499,7 @@ dependencies = [
 
 [[package]]
 name = "camel-audio-runtime"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "base64 0.22.1",
  "camel-library-manager",
@@ -512,9 +512,10 @@ dependencies = [
 
 [[package]]
 name = "camel-library-manager"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "reqwest",
+ "ring",
  "serde",
  "serde_json",
  "tempfile",
@@ -522,7 +523,7 @@ dependencies = [
 
 [[package]]
 name = "camel-studio"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "camel-audio-runtime",
  "eframe",

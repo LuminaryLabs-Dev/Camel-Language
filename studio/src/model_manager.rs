@@ -79,6 +79,13 @@ pub struct ModelManager {
 }
 
 impl ModelManager {
+    pub fn available_model_names(&self) -> Vec<String> {
+        self.installed
+            .iter()
+            .map(|model| model.name.clone())
+            .collect()
+    }
+
     pub fn open(&mut self) {
         self.open = true;
         if self.ollama_endpoint.is_empty() {
@@ -102,7 +109,12 @@ impl ModelManager {
             .open(&mut open)
             .default_size([980.0, 650.0])
             .min_size([760.0, 480.0])
-            .show(ctx, |ui| self.content(ui));
+            .show(ctx, |ui| {
+                egui::ScrollArea::vertical()
+                    .id_salt("model_manager_content")
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| self.content(ui));
+            });
         self.open = open;
     }
 
@@ -162,173 +174,181 @@ impl ModelManager {
             }
         });
 
-        ui.columns(2, |columns| {
-            egui::ScrollArea::vertical()
-                .id_salt("hf_gguf_models")
-                .show(&mut columns[0], |ui| {
-                    ui.strong("Hugging Face repositories");
-                    if self.models.is_empty() {
-                        ui.weak("Search for repositories tagged with GGUF.");
-                    }
-                    let mut inspect = None;
-                    for model in &self.models {
-                        let selected = self.selected_model.as_deref() == Some(&model.id);
-                        if ui
-                            .selectable_label(selected, egui::RichText::new(&model.id).strong())
-                            .clicked()
-                        {
-                            inspect = Some(model.id.clone());
-                        }
-                        ui.horizontal(|ui| {
-                            ui.add_space(12.0);
-                            ui.weak(format!("{} downloads", model.downloads));
-                            if model.tags.iter().any(|tag| tag == "text-generation") {
-                                ui.weak("text generation");
-                            }
-                        });
-                        ui.separator();
-                    }
-                    if let Some(id) = inspect {
-                        self.load_repository(id);
-                    }
-                });
-
-            egui::ScrollArea::vertical()
-                .id_salt("hf_gguf_details")
-                .show(&mut columns[1], |ui| {
-                    ui.strong("Import selected file");
-                    let files = self
-                        .repository
-                        .as_ref()
-                        .map(|repo| {
-                            repo.siblings
-                                .iter()
-                                .filter(|file| {
-                                    file.rfilename.to_ascii_lowercase().ends_with(".gguf")
-                                })
-                                .cloned()
-                                .collect::<Vec<_>>()
-                        })
-                        .unwrap_or_default();
-                    if let Some(repo) = &self.repository {
-                        ui.label(&repo.id);
-                        if !repo.sha.is_empty() {
-                            ui.weak(format!("Pinned revision {}", short_revision(&repo.sha)));
-                        }
-                        if files.is_empty() {
-                            ui.weak("No GGUF files found in this repository.");
-                        }
-                    } else {
-                        ui.weak("Select a repository to inspect its GGUF files.");
-                    }
-                    for file in &files {
-                        let selected = self.selected_file.as_deref() == Some(&file.rfilename);
-                        let label = match file.size {
-                            Some(size) => format!("{} · {}", file.rfilename, format_bytes(size)),
-                            None => file.rfilename.clone(),
-                        };
-                        if ui.selectable_label(selected, label).clicked() {
-                            self.selected_file = Some(file.rfilename.clone());
-                        }
-                    }
-                    let can_import = self.busy.is_none()
-                        && self.repository.is_some()
-                        && self.selected_file.as_ref().is_some_and(|selected| {
-                            files.iter().any(|file| &file.rfilename == selected)
-                        });
-                    if ui
-                        .add_enabled(
-                            can_import,
-                            egui::Button::new("Download and import into Ollama"),
-                        )
-                        .clicked()
-                    {
-                        self.import_selected();
-                    }
-                    if let Some(repo) = &self.repository {
-                        if let Some(file) = &self.selected_file {
-                            if files.iter().any(|candidate| &candidate.rfilename == file) {
-                                let name = ollama_name(&repo.id, &repo.sha, file);
-                                ui.add_space(8.0);
-                                ui.label("Ollama model name");
-                                ui.monospace(name);
-                            }
-                        }
-                    }
-                });
-        });
+        egui::CollapsingHeader::new("Hugging Face search results")
+            .id_salt("hf_search_results")
+            .default_open(true)
+            .show(ui, |ui| self.search_results(ui));
+        ui.add_space(8.0);
+        self.selected_repository_files(ui);
 
         ui.separator();
         ui.strong("Models installed in Ollama");
         if self.installed.is_empty() {
             ui.weak("No local Ollama models listed. Check that Ollama is running.");
         }
-        egui::ScrollArea::vertical()
-            .id_salt("ollama_installed_models")
-            .max_height(120.0)
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    if ui
-                        .add_enabled(
-                            self.busy.is_none() && !self.selected_for_loading.is_empty(),
-                            egui::Button::new("Load selected models"),
-                        )
-                        .clicked()
-                    {
-                        self.load_selected();
-                    }
-                    if !self.selected_for_loading.is_empty() {
-                        ui.weak(format!("{} selected", self.selected_for_loading.len()));
-                    }
-                });
-                let installed = self.installed.clone();
-                for model in installed {
-                    ui.horizontal(|ui| {
-                        let mut selected = self.selected_for_loading.contains(&model.name);
-                        if ui.checkbox(&mut selected, "").changed() {
-                            if selected {
-                                self.selected_for_loading.insert(model.name.clone());
-                            } else {
-                                self.selected_for_loading.remove(&model.name);
-                            }
-                        }
-                        ui.monospace(&model.name);
-                        ui.weak(format_bytes(model.size));
-                        if self.running.contains(&model.name) {
-                            ui.weak("Loaded");
-                            if ui
-                                .add_enabled(self.busy.is_none(), egui::Button::new("Unload"))
-                                .clicked()
-                            {
-                                self.unload_model(model.name.clone());
-                            }
-                        } else {
-                            ui.weak("Not loaded");
-                            let size = self
-                                .context_sizes
-                                .entry(model.name.clone())
-                                .or_insert_with(|| "4096".into());
-                            ui.add(
-                                egui::TextEdit::singleline(size)
-                                    .desired_width(70.0)
-                                    .hint_text("Context"),
-                            );
-                            if ui
-                                .add_enabled(self.busy.is_none(), egui::Button::new("Load"))
-                                .clicked()
-                            {
-                                let context = size.clone();
-                                self.load_models(vec![(model.name.clone(), context)]);
-                            }
-                        }
-                    });
+        ui.vertical(|ui| {
+            ui.horizontal(|ui| {
+                if ui
+                    .add_enabled(
+                        self.busy.is_none() && !self.selected_for_loading.is_empty(),
+                        egui::Button::new("Load selected models"),
+                    )
+                    .clicked()
+                {
+                    self.load_selected();
+                }
+                if !self.selected_for_loading.is_empty() {
+                    ui.weak(format!("{} selected", self.selected_for_loading.len()));
                 }
             });
+            let installed = self.installed.clone();
+            for model in installed {
+                ui.horizontal(|ui| {
+                    let mut selected = self.selected_for_loading.contains(&model.name);
+                    if ui.checkbox(&mut selected, "").changed() {
+                        if selected {
+                            self.selected_for_loading.insert(model.name.clone());
+                        } else {
+                            self.selected_for_loading.remove(&model.name);
+                        }
+                    }
+                    ui.monospace(&model.name);
+                    ui.weak(format_bytes(model.size));
+                    if self.running.contains(&model.name) {
+                        ui.weak("Loaded");
+                        if ui
+                            .add_enabled(self.busy.is_none(), egui::Button::new("Unload"))
+                            .clicked()
+                        {
+                            self.unload_model(model.name.clone());
+                        }
+                    } else {
+                        ui.weak("Not loaded");
+                        let size = self
+                            .context_sizes
+                            .entry(model.name.clone())
+                            .or_insert_with(|| "4096".into());
+                        ui.add(
+                            egui::TextEdit::singleline(size)
+                                .desired_width(70.0)
+                                .hint_text("Context"),
+                        );
+                        if ui
+                            .add_enabled(self.busy.is_none(), egui::Button::new("Load"))
+                            .clicked()
+                        {
+                            let context = size.clone();
+                            self.load_models(vec![(model.name.clone(), context)]);
+                        }
+                    }
+                });
+            }
+        });
+        ui.weak("Imports selected GGUF files only; model files are stored by Ollama locally.");
+    }
+
+    fn search_results(&mut self, ui: &mut egui::Ui) {
+        let mut inspect = None;
+        egui::ScrollArea::vertical()
+            .id_salt("hf_repository_results")
+            .max_height(220.0)
+            .show(ui, |ui| {
+                ui.strong("Hugging Face repositories");
+                if self.models.is_empty() {
+                    ui.weak("Search for repositories tagged with GGUF.");
+                }
+                for model in &self.models {
+                    let selected = self.selected_model.as_deref() == Some(&model.id);
+                    if ui
+                        .selectable_label(selected, egui::RichText::new(&model.id).strong())
+                        .clicked()
+                    {
+                        inspect = Some(model.id.clone());
+                    }
+                    ui.horizontal(|ui| {
+                        ui.add_space(12.0);
+                        ui.weak(format!("{} downloads", model.downloads));
+                        if model.tags.iter().any(|tag| tag == "text-generation") {
+                            ui.weak("text generation");
+                        }
+                    });
+                    ui.separator();
+                }
+            });
+        if let Some(id) = inspect {
+            self.load_repository(id);
+        }
+    }
+
+    fn selected_repository_files(&mut self, ui: &mut egui::Ui) {
+        ui.strong("Files in selected repository");
+        let files = self
+            .repository
+            .as_ref()
+            .map(|repo| {
+                repo.siblings
+                    .iter()
+                    .filter(|file| file.rfilename.to_ascii_lowercase().ends_with(".gguf"))
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if let Some(repo) = &self.repository {
+            ui.label(&repo.id);
+            if !repo.sha.is_empty() {
+                ui.weak(format!("Pinned revision {}", short_revision(&repo.sha)));
+            }
+            if files.is_empty() {
+                ui.weak("No GGUF files found in this repository.");
+            }
+        } else {
+            ui.weak("Select a repository above to load its files.");
+        }
         if let Some(message) = &self.message {
-            ui.separator();
             ui.label(message);
         }
-        ui.weak("Imports selected GGUF files only; model files are stored by Ollama locally.");
+        if let Some(progress) = &self.busy {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label(progress);
+            });
+        }
+        ui.weak("Select one GGUF file:");
+        for file in &files {
+            let label = match file.size {
+                Some(size) => format!("{} · {}", file.rfilename, format_bytes(size)),
+                None => file.rfilename.clone(),
+            };
+            ui.selectable_value(&mut self.selected_file, Some(file.rfilename.clone()), label);
+        }
+        if files.len() > 1 && self.selected_file.is_none() {
+            ui.weak("Select a GGUF file above to enable import.");
+        }
+        let can_import = self.busy.is_none()
+            && self.repository.is_some()
+            && self
+                .selected_file
+                .as_ref()
+                .is_some_and(|selected| files.iter().any(|file| &file.rfilename == selected));
+        if ui
+            .add_enabled(
+                can_import,
+                egui::Button::new("Download and import into Ollama"),
+            )
+            .clicked()
+        {
+            self.import_selected();
+        }
+        if let Some(repo) = &self.repository {
+            if let Some(file) = &self.selected_file {
+                if files.iter().any(|candidate| &candidate.rfilename == file) {
+                    let name = ollama_name(&repo.id, &repo.sha, file);
+                    ui.add_space(8.0);
+                    ui.label("Ollama model name");
+                    ui.monospace(name);
+                }
+            }
+        }
     }
 
     fn search(&mut self) {
@@ -477,6 +497,17 @@ impl ModelManager {
                     finished = true;
                 }
                 Update::Repository(Ok(repo)) => {
+                    let only_gguf_file = repo
+                        .siblings
+                        .iter()
+                        .filter(|file| file.rfilename.to_ascii_lowercase().ends_with(".gguf"))
+                        .map(|file| file.rfilename.clone())
+                        .collect::<Vec<_>>();
+                    self.selected_file = if only_gguf_file.len() == 1 {
+                        only_gguf_file.into_iter().next()
+                    } else {
+                        None
+                    };
                     self.repository = Some(repo);
                     self.message = Some("Repository metadata loaded.".into());
                     finished = true;
@@ -529,6 +560,9 @@ impl ModelManager {
                     refresh = true;
                 }
             }
+            if finished {
+                break;
+            }
         }
         if finished {
             self.updates = None;
@@ -564,6 +598,53 @@ impl ModelManager {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repository_success_is_not_replaced_by_channel_disconnect() {
+        let (tx, rx) = mpsc::channel();
+        tx.send(Update::Repository(Ok(HubRepository {
+            id: "owner/repo".into(),
+            sha: "0123456789abcdef".into(),
+            siblings: vec![HubFile {
+                rfilename: "model.gguf".into(),
+                size: Some(1),
+            }],
+        })))
+        .unwrap();
+        drop(tx);
+
+        let mut manager = ModelManager {
+            updates: Some(rx),
+            busy: Some("Loading repository files…".into()),
+            ..Default::default()
+        };
+
+        manager.receive_updates();
+
+        assert_eq!(
+            manager.message.as_deref(),
+            Some("Repository metadata loaded.")
+        );
+        assert_eq!(manager.selected_file.as_deref(), Some("model.gguf"));
+        assert!(manager.repository.is_some());
+        assert!(manager.busy.is_none());
+        assert!(manager.updates.is_none());
+    }
+
+    #[test]
+    fn repository_url_has_no_empty_path_segment() {
+        let url = repository_url("LiquidAI/LFM2.5-1.2B-Instruct-GGUF").unwrap();
+
+        assert_eq!(
+            url.as_str(),
+            "https://huggingface.co/api/models/LiquidAI/LFM2.5-1.2B-Instruct-GGUF?blobs=true"
+        );
+    }
+}
+
 fn search_hugging_face(query: &str, token: &str) -> Result<Vec<HubModel>, String> {
     let client = http_client()?;
     let mut request = client.get(format!("{HF_API}/models")).query(&[
@@ -593,12 +674,23 @@ fn search_hugging_face(query: &str, token: &str) -> Result<Vec<HubModel>, String
 }
 
 fn repository_details(id: &str, token: &str) -> Result<HubRepository, String> {
+    let client = http_client()?;
+    let url = repository_url(id)?;
+    with_hf_auth(client.get(url), token)
+        .send()
+        .map_err(|error| error.to_string())?
+        .error_for_status()
+        .map_err(|error| error.to_string())?
+        .json()
+        .map_err(|error| error.to_string())
+}
+
+fn repository_url(id: &str) -> Result<reqwest::Url, String> {
     if !valid_repository_id(id) {
         return Err("Hugging Face returned an invalid repository id".into());
     }
-    let client = http_client()?;
     let mut url =
-        reqwest::Url::parse(&format!("{HF_API}/models/")).map_err(|error| error.to_string())?;
+        reqwest::Url::parse(&format!("{HF_API}/models")).map_err(|error| error.to_string())?;
     {
         let mut segments = url
             .path_segments_mut()
@@ -608,13 +700,7 @@ fn repository_details(id: &str, token: &str) -> Result<HubRepository, String> {
         }
     }
     url.query_pairs_mut().append_pair("blobs", "true");
-    with_hf_auth(client.get(url), token)
-        .send()
-        .map_err(|error| error.to_string())?
-        .error_for_status()
-        .map_err(|error| error.to_string())?
-        .json()
-        .map_err(|error| error.to_string())
+    Ok(url)
 }
 
 fn list_ollama_models(endpoint: &str) -> Result<LocalModels, String> {

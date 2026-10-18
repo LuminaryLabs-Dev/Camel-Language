@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 2,
+  "libraries": [
+    {
+      "name": "standard",
+      "description": "String joining helper.",
+      "version": "1.0.0",
+      "revision": "main",
+      "repository": "https://github.com/LuminaryLabs-Dev/Camel-Language",
+      "path": "libraries/standard",
+      "files": ["core.camel"]
+    },
+    {
+      "name": "audio",
+      "description": "Audio transcription and topic-focused note summarization agents.",
+      "version": "0.1.0",
+      "revision": "main",
+      "repository": "https://github.com/LuminaryLabs-Dev/Camel-Language",
+      "path": "libraries/audio",
+      "files": ["note_summarizer.camel"]
+    }
+  ]
+}

@@ -22,6 +22,8 @@ fn real_worker_executes_offline_and_reports_source_errors() {
         "Main",
         &["7".into()],
         "http://localhost:1234",
+        &Default::default(),
+        &[],
     )
     .unwrap();
     let (messages, success) = drain(&mut runner);
@@ -43,11 +45,41 @@ fn real_worker_executes_offline_and_reports_source_errors() {
         "Main",
         &[],
         "http://localhost:1234",
+        &Default::default(),
+        &[],
     )
     .unwrap();
     let (messages, success) = drain(&mut runner);
     assert!(!success);
     assert!(messages.iter().any(|u|matches!(u,Update::Message(Message::Diagnostic{error}) if error.message.contains("expected failure")&&error.site.line==1)));
+}
+
+#[test]
+fn worker_rejects_model_calls_without_this_runs_approval() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("approval.camel");
+    std::fs::write(
+        &path,
+        "agent A{model=\"local\";} workflow Main(){Agent a=A; await a.run(\"prompt\");}",
+    )
+    .unwrap();
+    let mut runner = Runner::start(
+        Path::new(env!("CARGO_BIN_EXE_camel-studio")),
+        &path,
+        "Main",
+        &[],
+        "http://127.0.0.1:1",
+        &Default::default(),
+        &[],
+    )
+    .unwrap();
+    let (messages, success) = drain(&mut runner);
+    assert!(!success);
+    assert!(messages.iter().any(|update| matches!(
+        update,
+        Update::Message(Message::Diagnostic { error })
+            if error.message.contains("approval required for capability 'model'")
+    )));
 }
 #[test]
 fn stop_is_repeat_safe_and_reaps_only_the_owned_worker() {
@@ -64,6 +96,8 @@ fn stop_is_repeat_safe_and_reaps_only_the_owned_worker() {
         "Main",
         &[],
         "http://localhost:1234",
+        &Default::default(),
+        &[],
     )
     .unwrap();
     runner.stop().unwrap();
@@ -127,7 +161,7 @@ fn parallel_agent_workflow_round_trips_through_worker_and_http_adapter() {
                 }
             };
             requests.push(body);
-            let response=serde_json::json!({"choices":[{"message":{"role":"assistant","content":"{\"observations\":[\"Security approval pending\"],\"uncertainties\":[\"Release date unconfirmed\"]}"}}]}).to_string();
+            let response=serde_json::json!({"choices":[{"message":{"role":"assistant","content":"{\"observations\":[\"Security approval pending\"],\"uncertainties\":[\"Release date unconfirmed\"]}"}}],"usage":{"total_tokens":8}}).to_string();
             write!(socket,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",response.len(),response).unwrap();
         }
         requests
@@ -142,6 +176,8 @@ fn parallel_agent_workflow_round_trips_through_worker_and_http_adapter() {
         "Main",
         &[],
         &endpoint,
+        &Default::default(),
+        &["model".into()],
     )
     .unwrap();
     let (messages, success) = drain(&mut runner);

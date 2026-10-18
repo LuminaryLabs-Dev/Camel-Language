@@ -65,39 +65,80 @@ impl Diagnostic {
         let site = error.site;
         let end = Site {
             file: site.file.clone(),
-            line: if site.end_line == 0 { site.line } else { site.end_line },
-            column: if site.end_column == 0 { site.column } else { site.end_column },
+            line: if site.end_line == 0 {
+                site.line
+            } else {
+                site.end_line
+            },
+            column: if site.end_column == 0 {
+                site.column
+            } else {
+                site.end_column
+            },
             offset: site.end_offset.max(site.offset),
-            end_line: if site.end_line == 0 { site.line } else { site.end_line },
-            end_column: if site.end_column == 0 { site.column } else { site.end_column },
+            end_line: if site.end_line == 0 {
+                site.line
+            } else {
+                site.end_line
+            },
+            end_column: if site.end_column == 0 {
+                site.column
+            } else {
+                site.end_column
+            },
             end_offset: site.end_offset.max(site.offset),
         };
-        let phase = phase;
         Self {
             severity: Severity::Error,
             phase,
             code: code.into(),
             message: error.message,
-            primary_span: SourceSpan {
-                start: site,
-                end,
-            },
+            primary_span: SourceSpan { start: site, end },
             related: Vec::new(),
             help: None,
         }
     }
 
-    pub fn warning(code: impl Into<String>, phase: DiagnosticPhase, site: Site, message: impl Into<String>) -> Self {
+    pub fn warning(
+        code: impl Into<String>,
+        phase: DiagnosticPhase,
+        site: Site,
+        message: impl Into<String>,
+    ) -> Self {
         let end = Site {
             file: site.file.clone(),
-            line: if site.end_line == 0 { site.line } else { site.end_line },
-            column: if site.end_column == 0 { site.column } else { site.end_column },
+            line: if site.end_line == 0 {
+                site.line
+            } else {
+                site.end_line
+            },
+            column: if site.end_column == 0 {
+                site.column
+            } else {
+                site.end_column
+            },
             offset: site.end_offset.max(site.offset),
-            end_line: if site.end_line == 0 { site.line } else { site.end_line },
-            end_column: if site.end_column == 0 { site.column } else { site.end_column },
+            end_line: if site.end_line == 0 {
+                site.line
+            } else {
+                site.end_line
+            },
+            end_column: if site.end_column == 0 {
+                site.column
+            } else {
+                site.end_column
+            },
             end_offset: site.end_offset.max(site.offset),
         };
-        Self { severity: Severity::Warning, phase, code: code.into(), message: message.into(), primary_span: SourceSpan { start: site, end }, related: Vec::new(), help: None }
+        Self {
+            severity: Severity::Warning,
+            phase,
+            code: code.into(),
+            message: message.into(),
+            primary_span: SourceSpan { start: site, end },
+            related: Vec::new(),
+            help: None,
+        }
     }
 
     pub fn to_error(&self) -> Error {
@@ -111,13 +152,7 @@ impl std::fmt::Display for Diagnostic {
         write!(
             f,
             "{}:{}:{}: [{:?} {:?} {}] {}",
-            site.file,
-            site.line,
-            site.column,
-            self.severity,
-            self.phase,
-            self.code,
-            self.message
+            site.file, site.line, site.column, self.severity, self.phase, self.code, self.message
         )
     }
 }
@@ -152,7 +187,7 @@ impl std::fmt::Display for Error {
 impl std::error::Error for Error {}
 pub type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Type {
     Named(String),
     Array(Box<Type>),
@@ -206,6 +241,8 @@ pub enum StmtKind {
     Assign(Expr, Expr),
     Update(Expr, String, Expr),
     Expr(Expr),
+    /// A durable, explicitly declared workflow boundary.
+    Checkpoint(String),
     If(Expr, Box<Stmt>, Option<Box<Stmt>>),
     While(Expr, Box<Stmt>),
     For(Box<Stmt>, Expr, Box<Stmt>, Box<Stmt>),

@@ -1,4 +1,4 @@
-# Audio Note Summarizer — Camel 0.2.0 preview
+# Audio Note Summarizer — Camel v.0.3.0
 
 The audio inference implementation lives in the separately versioned `libraries/audio` source package. `Camel/examples/audio_note_summarizer.camel` imports the checkout copy for local development; `Camel/examples/audio_note_summarizer_installed.camel` imports the installed package:
 
@@ -11,7 +11,7 @@ This captures a recording and then transcribes it. It is **not continuous stream
 
 ## Requirements and limitation
 
-Use the new source runtime or 0.2.0 preview executable, not the recovered alpha binary. A default microphone must be available and operating-system recording permission enabled.
+Use the v.0.3.0 source runtime or executable, not the recovered alpha binary. A default microphone must be available and operating-system recording permission enabled.
 
 The runtime provides generic audio input values and capture. Transcription and summarization prompts, agents, model defaults, and response records belong to the independently versioned `audio` library. Its catalog version and Git revision can advance without a runtime release. Install or update it with `camel library install audio` and `camel library update audio`, then check the installed-import example. The repository-local example imports the library source directly. This repository is private, so remote install requires an accessible catalog and source repository; local checkout imports remain available.
 

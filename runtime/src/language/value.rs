@@ -154,7 +154,71 @@ fn ensure_depth(p: &Program, ty: &Type, v: &Value, site: &Site, depth: usize) ->
             "Tool" => matches!(v, Value::Tool(_)),
             "object" => matches!(v, Value::Object(_)),
             "AgentResult" => {
-                matches!(v,Value::Object(o) if o.contains_key("data") && matches!(o.get("text"),Some(Value::String(_))))
+                if let Value::Object(fields) = v {
+                    let valid = fields.contains_key("data")
+                        && matches!(fields.get("text"), Some(Value::String(_)))
+                        && matches!(fields.get("model"), Some(Value::String(_)))
+                        && matches!(fields.get("toolCalls"), Some(Value::Int(_)))
+                        && fields.contains_key("provenance");
+                    if valid {
+                        ensure_depth(
+                            p,
+                            &Type::named("EvidenceProvenance"),
+                            &fields["provenance"],
+                            site,
+                            depth + 1,
+                        )?;
+                    }
+                    valid
+                } else {
+                    false
+                }
+            }
+            "EvidenceProvenance" => {
+                if let Value::Object(fields) = v {
+                    let expected = [
+                        "agent",
+                        "column",
+                        "endColumn",
+                        "endLine",
+                        "endOffset",
+                        "file",
+                        "line",
+                        "model",
+                        "offset",
+                        "sourceFingerprint",
+                        "tools",
+                    ];
+                    if fields.keys().map(String::as_str).ne(expected) {
+                        return Err(Error::at(
+                            site,
+                            "EvidenceProvenance requires its declared fields",
+                        ));
+                    }
+                    for key in ["agent", "model", "file", "sourceFingerprint"] {
+                        ensure_depth(p, &Type::named("string"), &fields[key], site, depth + 1)?;
+                    }
+                    for key in [
+                        "line",
+                        "column",
+                        "offset",
+                        "endLine",
+                        "endColumn",
+                        "endOffset",
+                    ] {
+                        ensure_depth(p, &Type::named("int"), &fields[key], site, depth + 1)?;
+                    }
+                    ensure_depth(
+                        p,
+                        &Type::Array(Box::new(Type::named("string"))),
+                        &fields["tools"],
+                        site,
+                        depth + 1,
+                    )?;
+                    true
+                } else {
+                    false
+                }
             }
             _ => {
                 if let (Some(fields), Value::Object(o)) = (p.records.get(n), v) {

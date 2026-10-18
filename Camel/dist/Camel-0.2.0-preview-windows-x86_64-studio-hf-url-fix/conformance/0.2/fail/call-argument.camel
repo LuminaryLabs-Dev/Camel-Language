@@ -1,0 +1,9 @@
+version "0.2";
+
+int Double(int value) {
+    return value * 2;
+}
+
+workflow int Main() {
+    return Double("two");
+}

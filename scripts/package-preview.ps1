@@ -16,7 +16,7 @@ $architecture = $Matches[1]
 $platform = if ($Target.Contains('windows')) { 'windows' } elseif ($Target.Contains('darwin')) { 'macos' } else { 'linux' }
 $extension = if ($platform -eq 'windows') { '.exe' } else { '' }
 $setupName = if ($platform -eq 'windows') { 'Camel-Setup.exe' } else { 'camel-setup' }
-$version = '0.2.0-preview'
+$version = 'v.0.3.0'
 if (-not $Output) {
     $studioSuffix = if ($IncludeStudio) { '-studio' } else { '' }
     $Output = "Camel/dist/Camel-$version-$platform-$architecture$studioSuffix-setup.zip"

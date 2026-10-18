@@ -1,8 +1,9 @@
 use camel_audio_runtime::{
-    language::{analyze_file, Engine, Host, Limits, Value},
+    language::{analyze_file, Capability, Engine, Host, Limits, ReplayCassette, Value},
     libraries, LmStudioClient,
 };
 use std::{
+    collections::BTreeSet,
     env,
     path::{Path, PathBuf},
     process::Command,
@@ -25,6 +26,15 @@ struct Options {
     seconds: Option<Option<u64>>,
     save: Option<PathBuf>,
     steps: usize,
+    tool_calls: usize,
+    tokens: usize,
+    timeout_seconds: u64,
+    approvals: BTreeSet<Capability>,
+    checkpoint: Option<PathBuf>,
+    resume: Option<PathBuf>,
+    record_cassette: Option<PathBuf>,
+    replay_cassette: Option<PathBuf>,
+    evaluation_report: Option<PathBuf>,
 }
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().skip(1).collect();
@@ -39,7 +49,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
     if args == ["--version"] {
-        println!("Camel 0.2.0-preview");
+        println!("Camel v.0.3.0");
         return Ok(());
     }
     let options = options(args).map_err(std::io::Error::other)?;
@@ -67,40 +77,89 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
     let args = program.parse_arguments(&options.entry, &options.args)?;
+    if options.record_cassette.is_some() && options.replay_cassette.is_some() {
+        return Err("--record-cassette and --replay-cassette are mutually exclusive".into());
+    }
+    if options.evaluation_report.is_some() && options.replay_cassette.is_none() {
+        return Err(
+            "--evaluation-report requires --replay-cassette for deterministic output".into(),
+        );
+    }
+    let cassette = if let Some(path) = &options.record_cassette {
+        let cassette = if options.resume.is_some() {
+            ReplayCassette::continue_recording(path)
+        } else {
+            ReplayCassette::record_to(path)
+        };
+        Some(cassette.map_err(std::io::Error::other)?)
+    } else if let Some(path) = &options.replay_cassette {
+        Some(ReplayCassette::replay_from(path).map_err(std::io::Error::other)?)
+    } else {
+        None
+    };
     let host = Host {
-        provider: Some(Arc::new(LmStudioClient::from_environment()?)),
+        provider: if options.replay_cassette.is_some() {
+            None
+        } else {
+            Some(Arc::new(LmStudioClient::from_environment()?))
+        },
         recording_seconds: options.seconds,
         save_recording: options.save,
+        approved_capabilities: Some(options.approvals.clone()),
+        cassette,
         ..Host::default()
     };
     if options.trace {
         eprintln!(
-            "executing workflow {} from {} (step budget {})",
+            "executing workflow {} from {} (step {}, tool-call {}, token {}, time {}s budgets)",
             options.entry,
             options.source.display(),
-            options.steps
+            options.steps,
+            options.tool_calls,
+            options.tokens,
+            options.timeout_seconds
         );
     }
-    let result = Engine::new(program, host)
-        .with_limits(Limits {
-            steps: options.steps,
-            ..Limits::default()
-        })
-        .run(&options.entry, args)?;
+    let mut engine = Engine::new(program, host).with_limits(Limits {
+        steps: options.steps,
+        tool_calls: options.tool_calls,
+        tokens: options.tokens,
+        deadline: std::time::Duration::from_secs(options.timeout_seconds),
+        ..Limits::default()
+    });
+    if let Some(path) = &options.checkpoint {
+        engine = engine.with_checkpoint_file(path);
+    }
+    if let Some(path) = &options.resume {
+        engine = engine.resume_from(path);
+    }
+    let result = engine.run(&options.entry, args)?;
+    let site = camel_audio_runtime::language::Site {
+        file: options.source.display().to_string(),
+        line: 1,
+        column: 1,
+        offset: 0,
+        end_line: 1,
+        end_column: 1,
+        end_offset: 0,
+    };
+    if let Some(path) = &options.evaluation_report {
+        let report = serde_json::json!({
+            "format": "camel-evaluation-v1",
+            "sourceFingerprint": result.source_fingerprint,
+            "cassetteFingerprint": result.cassette_fingerprint,
+            "workflow": options.entry,
+            "result": result.value.to_json(&site)?,
+            "logs": result.logs,
+            "usage": {"tokens": result.tokens_used, "toolCalls": result.tool_calls_used}
+        });
+        write_json_atomic(path, &report)?;
+    }
     if options.json {
-        let site = camel_audio_runtime::language::Site {
-            file: options.source.display().to_string(),
-            line: 1,
-            column: 1,
-            offset: 0,
-            end_line: 1,
-            end_column: 1,
-            end_offset: 0,
-        };
         println!(
             "{}",
             serde_json::to_string_pretty(
-                &serde_json::json!({"value":result.value.to_json(&site)?,"logs":result.logs})
+                &serde_json::json!({"value":result.value.to_json(&site)?,"logs":result.logs,"usage":{"tokens":result.tokens_used,"toolCalls":result.tool_calls_used},"sourceFingerprint":result.source_fingerprint,"cassetteFingerprint":result.cassette_fingerprint})
             )?
         );
     } else {
@@ -178,31 +237,77 @@ fn studio_on_path() -> Option<PathBuf> {
             .find(|candidate| candidate.is_file())
     })
 }
+fn write_json_atomic(
+    path: &Path,
+    value: &serde_json::Value,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let mut pending = tempfile::NamedTempFile::new_in(parent)?;
+    serde_json::to_writer_pretty(&mut pending, value)?;
+    pending.as_file().sync_all()?;
+    pending.persist(path).map_err(|error| error.error)?;
+    Ok(())
+}
 fn library_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let mut positional = Vec::new();
     let mut source = None;
+    let mut output = None;
     let mut args = args.iter();
     while let Some(arg) = args.next() {
-        if arg == "--catalog" {
-            if source.is_some() {
-                return Err("--catalog may only appear once".into());
+        match arg.as_str() {
+            "--catalog" => {
+                if source.is_some() {
+                    return Err("--catalog may only appear once".into());
+                }
+                source = Some(
+                    args.next()
+                        .ok_or("--catalog requires a file path or URL")?
+                        .as_str(),
+                );
             }
-            source = Some(
-                args.next()
-                    .ok_or("--catalog requires a file path or URL")?
-                    .as_str(),
-            );
-        } else {
-            positional.push(arg.as_str());
+            "--output" => {
+                if output.is_some() {
+                    return Err("--output may only appear once".into());
+                }
+                output = Some(PathBuf::from(
+                    args.next().ok_or("--output requires a path")?,
+                ));
+            }
+            _ => positional.push(arg.as_str()),
         }
     }
     let command = positional.first().copied().unwrap_or("list");
     let argument = positional.get(1).copied();
-    if positional.len() > 2 {
+    if positional.len() > 2 && positional.first().copied() != Some("lock") {
         return Err("too many library arguments".into());
     }
     match command {
-        "help" | "--help" | "-h" => println!("camel library [list|search <query>|install <name>|update <name>|remove <name>] [--catalog <path-or-url>]"),
+        "help" | "--help" | "-h" => println!("camel library [list|search <query>|install <name>|update <name>|remove <name>|lock <name>|verify-lock [path]|install-locked [path]] [--catalog <path-or-url>] [--output <path>]"),
+        "lock" => {
+            if positional.len() < 2 { return Err("usage: camel library lock <name>... [--output camel.lock]".into()); }
+            let names = positional[1..].iter().map(|name| (*name).to_owned()).collect::<Vec<_>>();
+            let lock = libraries::create_lock(&libraries::catalog(source)?, &names)?;
+            let path = output.unwrap_or_else(|| PathBuf::from("camel.lock"));
+            libraries::write_lock(&path, &lock)?;
+            println!("locked {} package(s) to {}", lock.libraries.len(), path.display());
+        }
+        "verify-lock" => {
+            if output.is_some() || source.is_some() { return Err("usage: camel library verify-lock [path]".into()); }
+            let path = argument.unwrap_or("camel.lock");
+            let lock = libraries::read_lock(path)?;
+            println!("lock is valid: {} package(s)", lock.libraries.len());
+        }
+        "install-locked" => {
+            if output.is_some() { return Err("--output is only valid with `lock`".into()); }
+            let path = argument.unwrap_or("camel.lock");
+            let lock = libraries::read_lock(path)?;
+            for installed in libraries::install_locked(&lock)? {
+                println!("installed {}", installed.display());
+            }
+        }
         "remove" | "uninstall" => {
             let name = argument.ok_or("usage: camel library remove <name>")?;
             println!("{} {name}", if libraries::remove(name)? { "removed" } else { "already absent:" });
@@ -223,6 +328,7 @@ fn library_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                 libraries::catalog(source)?
             };
             let item = catalog.libraries.iter().find(|item| item.name == name).ok_or_else(|| format!("library '{name}' is not in the catalog"))?;
+            if output.is_some() { return Err("--output is only valid with `lock`".into()); }
             println!("installed {} {} at {}", item.name, item.version, libraries::install(item)?.display());
         }
         _ => return Err(format!("unknown library command '{command}'; use camel library help").into()),
@@ -251,6 +357,15 @@ fn options(args: Vec<String>) -> Result<Options, String> {
         },
         save: None,
         steps: 100_000,
+        tool_calls: 256,
+        tokens: 32_768,
+        timeout_seconds: 600,
+        approvals: BTreeSet::new(),
+        checkpoint: None,
+        resume: None,
+        record_cassette: None,
+        replay_cassette: None,
+        evaluation_report: None,
     };
     let mut i = start + 1;
     while i < args.len() {
@@ -263,7 +378,18 @@ fn options(args: Vec<String>) -> Result<Options, String> {
             "--trace" => o.trace = true,
             "--lm" => {}
             "--until-enter" => o.seconds = Some(None),
-            "--workflow" | "--steps" | "--seconds" | "--save-recording" => {
+            "--workflow"
+            | "--steps"
+            | "--tool-calls"
+            | "--tokens"
+            | "--timeout-seconds"
+            | "--seconds"
+            | "--save-recording"
+            | "--checkpoint"
+            | "--resume"
+            | "--record-cassette"
+            | "--replay-cassette"
+            | "--evaluation-report" => {
                 let flag = &args[i];
                 i += 1;
                 let value = args
@@ -279,6 +405,30 @@ fn options(args: Vec<String>) -> Result<Options, String> {
                             return Err("--steps must be positive".into());
                         }
                     }
+                    "--tool-calls" => {
+                        o.tool_calls = value
+                            .parse()
+                            .map_err(|_| "--tool-calls must be a positive integer")?;
+                        if o.tool_calls == 0 {
+                            return Err("--tool-calls must be positive".into());
+                        }
+                    }
+                    "--tokens" => {
+                        o.tokens = value
+                            .parse()
+                            .map_err(|_| "--tokens must be a positive integer")?;
+                        if o.tokens == 0 {
+                            return Err("--tokens must be positive".into());
+                        }
+                    }
+                    "--timeout-seconds" => {
+                        o.timeout_seconds = value
+                            .parse()
+                            .map_err(|_| "--timeout-seconds must be 1..86400")?;
+                        if !(1..=86_400).contains(&o.timeout_seconds) {
+                            return Err("--timeout-seconds must be 1..86400".into());
+                        }
+                    }
                     "--seconds" => {
                         let seconds: u64 =
                             value.parse().map_err(|_| "--seconds must be an integer")?;
@@ -288,8 +438,20 @@ fn options(args: Vec<String>) -> Result<Options, String> {
                         o.seconds = Some(Some(seconds));
                     }
                     "--save-recording" => o.save = Some(PathBuf::from(value)),
+                    "--checkpoint" => o.checkpoint = Some(PathBuf::from(value)),
+                    "--resume" => o.resume = Some(PathBuf::from(value)),
+                    "--record-cassette" => o.record_cassette = Some(PathBuf::from(value)),
+                    "--replay-cassette" => o.replay_cassette = Some(PathBuf::from(value)),
+                    "--evaluation-report" => o.evaluation_report = Some(PathBuf::from(value)),
                     _ => unreachable!(),
                 }
+            }
+            "--approve" => {
+                i += 1;
+                let value = args.get(i).ok_or("--approve requires a capability")?;
+                let capability = Capability::parse(value)
+                    .ok_or_else(|| format!("unknown capability '{value}' for --approve"))?;
+                o.approvals.insert(capability);
             }
             other => {
                 return Err(format!(
@@ -303,11 +465,11 @@ fn options(args: Vec<String>) -> Result<Options, String> {
 }
 fn help() {
     println!(
-        r#"Camel 0.2.0-preview — source-backed agent programming language
+        r#"Camel v.0.3.0 — source-backed agent programming language
 
   camel check <file.camel>
-  camel [run] <file.camel> [--workflow Main] [--json] [--trace] [--steps N] -- [arguments]
-  camel record <file.camel> [--seconds N|--until-enter] [--save-recording path] -- [arguments]
+  camel [run] <file.camel> [--workflow Main] [--json] [--trace] [--steps N] [--tool-calls N] [--tokens N] [--timeout-seconds N] [--approve capability]... -- [arguments]
+  camel record <file.camel> [--seconds N|--until-enter] [--save-recording path] [--approve microphone] -- [arguments]
   camel --gui [file.camel]
   camel library [list|search <query>|install <name>|update <name>|remove <name>] [--catalog <path-or-url>]
 
@@ -316,6 +478,14 @@ Without it, the program controls when and how long to record. Nothing records du
 --json emits one object containing the workflow value and captured logs.
 Model calls use CAMEL_LM_ENDPOINT (default http://localhost:1234), CAMEL_LM_TOKEN,
 and CAMEL_LM_TIMEOUT_SECONDS (default 300). Models come from agent declarations.
+Effectful CLI runs require explicit per-run approvals: model, microphone, file-read,
+file-write, network, and shell. Repeat --approve for each capability the run may use.
+Use --checkpoint <path> with checkpoint("label"); statements to save workflow state;
+--resume <path> continues after the saved boundary and rejects changed source.
+--record-cassette <path> records model, tool, environment and audio boundaries;
+--replay-cassette <path> replays without repeating those effects. --evaluation-report
+<path> writes a deterministic report and requires replay mode. With --resume, recording
+continues from the cassette position saved in the checkpoint.
 --gui launches Camel Studio; set CAMEL_STUDIO_PATH to select its executable.
 The camel-audio-runtime executable is an alias for this same interpreter."#
     );
@@ -338,5 +508,47 @@ mod tests {
     #[test]
     fn stray_arguments_are_rejected() {
         assert!(options(vec!["a.camel".into(), "topic".into()]).is_err());
+    }
+    #[test]
+    fn run_budgets_are_configurable() {
+        let parsed = options(vec![
+            "a.camel".into(),
+            "--tool-calls".into(),
+            "12".into(),
+            "--tokens".into(),
+            "2048".into(),
+            "--timeout-seconds".into(),
+            "30".into(),
+        ])
+        .unwrap();
+        assert_eq!(parsed.tool_calls, 12);
+        assert_eq!(parsed.tokens, 2048);
+        assert_eq!(parsed.timeout_seconds, 30);
+        assert!(options(vec![
+            "a.camel".into(),
+            "--timeout-seconds".into(),
+            "0".into()
+        ])
+        .is_err());
+    }
+
+    #[test]
+    fn per_run_approvals_are_explicit_and_repeatable() {
+        let parsed = options(vec![
+            "a.camel".into(),
+            "--approve".into(),
+            "model".into(),
+            "--approve".into(),
+            "network".into(),
+        ])
+        .unwrap();
+        assert!(parsed.approvals.contains(&Capability::Model));
+        assert!(parsed.approvals.contains(&Capability::Network));
+        assert!(options(vec![
+            "a.camel".into(),
+            "--approve".into(),
+            "everything".into(),
+        ])
+        .is_err());
     }
 }

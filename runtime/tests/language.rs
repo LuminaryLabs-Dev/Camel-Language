@@ -1,5 +1,7 @@
 use camel_audio_runtime::{
-    language::{Capability, CompiledProgram, Engine, Host, Limits, ModelProvider, Value},
+    language::{
+        Capability, CompiledProgram, Engine, Host, Limits, ModelProvider, ReplayCassette, Value,
+    },
     AudioInput,
 };
 use serde_json::{json, Value as Json};
@@ -76,6 +78,47 @@ fn check_never_records_or_calls_models() {
     CompiledProgram::from_source("test.camel","agent Anything {model=\"not-downloaded\";} workflow Main(){Audio a=record(5);Anything.run(a);}").unwrap();
 }
 #[test]
+fn explicit_per_run_approval_blocks_unapproved_tool_and_model_effects() {
+    let approvals = Some(std::collections::BTreeSet::new());
+    let tool = CompiledProgram::from_source(
+        "approval.camel",
+        "tool string Fetch(string url){handler=\"http.get\";} workflow Main(){Fetch(\"https://example.invalid\");}",
+    )
+    .unwrap();
+    let error = Engine::new(
+        tool,
+        Host {
+            approved_capabilities: approvals.clone(),
+            ..Host::default()
+        },
+    )
+    .run("Main", vec![])
+    .err()
+    .unwrap();
+    assert!(error
+        .message
+        .contains("approval required for capability 'network'"));
+
+    let agent = CompiledProgram::from_source(
+        "approval.camel",
+        "agent A{model=\"local\";} workflow Main(){Agent a=A; await a.run(\"prompt\");}",
+    )
+    .unwrap();
+    let error = Engine::new(
+        agent,
+        Host {
+            approved_capabilities: approvals,
+            ..Host::default()
+        },
+    )
+    .run("Main", vec![])
+    .err()
+    .unwrap();
+    assert!(error
+        .message
+        .contains("approval required for capability 'model'"));
+}
+#[test]
 fn arithmetic_failures_have_source_locations() {
     for expression in ["1/0", "9223372036854775807+1", "[1][3]"] {
         let error = run(&format!("workflow int Main(){{return {expression};}}"))
@@ -102,6 +145,63 @@ fn budgets_cannot_be_swallowed_by_catch() {
         .unwrap();
     assert!(e.fatal);
     assert!(e.message.contains("budget"));
+}
+
+#[test]
+fn cancelled_run_stops_before_workflow_body() {
+    let token = camel_audio_runtime::language::CancellationToken::default();
+    token.cancel();
+    let program =
+        CompiledProgram::from_source("cancel.camel", "workflow Main(){log(\"ran\");}").unwrap();
+    let host = Host {
+        cancellation: token,
+        ..Host::default()
+    };
+    let error = Engine::new(program, host)
+        .run("Main", vec![])
+        .err()
+        .unwrap();
+    assert!(error.fatal);
+    assert!(error.message.contains("cancelled"));
+}
+
+#[test]
+fn total_deadline_is_checked_before_workflow_body() {
+    let program =
+        CompiledProgram::from_source("deadline.camel", "workflow Main(){log(\"ran\");}").unwrap();
+    let error = Engine::new(program, Host::default())
+        .with_limits(Limits {
+            deadline: std::time::Duration::ZERO,
+            ..Limits::default()
+        })
+        .run("Main", vec![])
+        .err()
+        .unwrap();
+    assert!(error.fatal);
+    assert!(error.message.contains("deadline"));
+}
+
+#[test]
+fn direct_tool_calls_use_run_wide_budget() {
+    let program = CompiledProgram::from_source(
+        "tool-budget.camel",
+        "tool int Count(){handler=\"test.count\";} workflow Main(){Count();Count();}",
+    )
+    .unwrap();
+    let mut host = Host::default();
+    host.tools
+        .register("test.count", Capability::Pure, |_, _, _| Ok(Value::Int(1)))
+        .unwrap();
+    let error = Engine::new(program, host)
+        .with_limits(Limits {
+            tool_calls: 1,
+            ..Limits::default()
+        })
+        .run("Main", vec![])
+        .err()
+        .unwrap();
+    assert!(error.fatal);
+    assert!(error.message.contains("tool-call budget"));
 }
 #[test]
 fn tasks_capture_values_and_memoize_await() {
@@ -180,13 +280,23 @@ struct Fake {
     answers: Mutex<std::collections::VecDeque<std::result::Result<Json, String>>>,
 }
 impl ModelProvider for Fake {
+    fn capabilities(&self) -> camel_audio_runtime::language::ProviderCapabilities {
+        camel_audio_runtime::language::ProviderCapabilities {
+            tool_calls: true,
+            structured_output: true,
+            token_usage: true,
+        }
+    }
     fn complete(&self, request: Json) -> std::result::Result<Json, String> {
         self.requests.lock().unwrap().push(request);
-        self.answers
+        let mut answer = self
+            .answers
             .lock()
             .unwrap()
             .pop_front()
-            .expect("unexpected model request")
+            .expect("unexpected model request")?;
+        answer["usage"] = json!({"total_tokens":1});
+        Ok(answer)
     }
 }
 fn provider(answers: Vec<Json>) -> Arc<Fake> {
@@ -221,6 +331,142 @@ fn hosted(
     host: Host,
 ) -> camel_audio_runtime::language::Result<camel_audio_runtime::language::Execution> {
     Engine::new(CompiledProgram::from_source("agents.camel", source)?, host).run("Main", vec![])
+}
+
+#[test]
+fn checkpoint_resume_restores_scope_without_repeating_prior_effects() {
+    let temp = tempfile::tempdir().unwrap();
+    let checkpoint = temp.path().join("run.checkpoint.json");
+    let calls = Arc::new(AtomicUsize::new(0));
+    let source = concat!(
+        "tool int Mark() { handler = \"test.mark\"; }\n",
+        "workflow int Main() {\n",
+        "  int before = Mark();\n",
+        "  log(\"checkpointed\");\n",
+        "  checkpoint(\"prepared\");\n",
+        "  int after = Mark();\n",
+        "  return before * 10 + after;\n",
+        "}"
+    );
+    let program = CompiledProgram::from_source("checkpoint.camel", source).unwrap();
+    let register = || {
+        let calls = calls.clone();
+        let mut host = Host::default();
+        host.tools
+            .register("test.mark", Capability::Pure, move |_, _, _| {
+                Ok(Value::Int(calls.fetch_add(1, Ordering::SeqCst) as i64 + 1))
+            })
+            .unwrap();
+        host
+    };
+
+    let first = Engine::new(program.clone(), register())
+        .with_checkpoint_file(&checkpoint)
+        .run("Main", vec![])
+        .unwrap();
+    assert!(matches!(first.value, Value::Int(12)));
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+
+    let resumed = Engine::new(program, register())
+        .resume_from(&checkpoint)
+        .run("Main", vec![])
+        .unwrap();
+    assert!(matches!(resumed.value, Value::Int(13)));
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
+    assert_eq!(resumed.logs, vec!["checkpointed"]);
+}
+
+#[test]
+fn persisted_cassette_replays_model_without_a_provider_and_rejects_other_source() {
+    let temp = tempfile::tempdir().unwrap();
+    let cassette_path = temp.path().join("run.cassette.json");
+    let source = "agent A { model = \"test-model\"; } workflow string Main() { return A.run(\"question\").text; }";
+    let program = CompiledProgram::from_source("replay.camel", source).unwrap();
+    let provider = provider(vec![json!({"content":"stable answer"})]);
+    let recording = ReplayCassette::record_to(&cassette_path).unwrap();
+    let recorded = Engine::new(
+        program.clone(),
+        Host {
+            provider: Some(provider.clone()),
+            cassette: Some(recording),
+            ..Host::default()
+        },
+    )
+    .run("Main", vec![])
+    .unwrap();
+    assert_eq!(provider.requests.lock().unwrap().len(), 1);
+
+    let replay = ReplayCassette::replay_from(&cassette_path).unwrap();
+    let replayed = Engine::new(
+        program,
+        Host {
+            cassette: Some(replay),
+            ..Host::default()
+        },
+    )
+    .run("Main", vec![])
+    .unwrap();
+    assert_eq!(recorded.value.display(), "stable answer");
+    assert_eq!(replayed.value.display(), recorded.value.display());
+    assert_eq!(replayed.tokens_used, recorded.tokens_used);
+    assert_eq!(replayed.cassette_fingerprint, recorded.cassette_fingerprint);
+    assert_eq!(provider.requests.lock().unwrap().len(), 1);
+
+    let changed = CompiledProgram::from_source(
+        "replay.camel",
+        &source.replace("question", "different question"),
+    )
+    .unwrap();
+    let outcome = Engine::new(
+        changed,
+        Host {
+            cassette: Some(ReplayCassette::replay_from(&cassette_path).unwrap()),
+            ..Host::default()
+        },
+    )
+    .run("Main", vec![]);
+    let error = match outcome {
+        Err(error) => error,
+        Ok(_) => panic!("changed source unexpectedly replayed"),
+    };
+    assert!(error
+        .message
+        .contains("does not match this source fingerprint"));
+}
+
+#[test]
+fn agent_result_handoff_keeps_typed_provenance() {
+    let fake = provider(vec![
+        json!({"content":"evidence"}),
+        json!({"content":"received"}),
+    ]);
+    let source = concat!(
+        "agent Researcher { model = \"research-model\"; }\n",
+        "agent Reviewer { model = \"review-model\"; }\n",
+        "workflow string Main() {\n",
+        "  AgentResult evidence = await Researcher.run(\"collect\");\n",
+        "  AgentResult review = await Reviewer.run(evidence);\n",
+        "  return review.text;\n",
+        "}"
+    );
+    let result = hosted(
+        source,
+        Host {
+            provider: Some(fake.clone()),
+            ..Host::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(result.value.display(), "received");
+    let requests = fake.requests.lock().unwrap();
+    let handoff = requests[1]["messages"][1]["content"].as_str().unwrap();
+    assert!(handoff.contains("\"provenance\""), "{handoff}");
+    assert!(handoff.contains("\"agent\":\"Researcher\""), "{handoff}");
+    assert!(
+        handoff.contains("\"model\":\"research-model\""),
+        "{handoff}"
+    );
+    assert!(handoff.contains("\"sourceFingerprint\""), "{handoff}");
 }
 
 #[test]

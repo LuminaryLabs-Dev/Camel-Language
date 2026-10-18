@@ -13,14 +13,20 @@ mod value;
 
 pub use analysis::{analyze_buffer, analyze_file, analyze_source, AnalysisResult};
 pub use eval::{Engine, Execution, Limits};
-pub use host::{Capability, ExecutionEvent, Host, ModelProvider, ToolRegistry};
+pub use host::{
+    CancellationToken, Capability, ExecutionEvent, Host, ModelProvider, ProviderCapabilities,
+    ReplayCassette, ToolRegistry,
+};
 pub use inspect::{Declaration, Parameter};
 use std::{
     collections::BTreeSet,
     path::{Path, PathBuf},
     sync::Arc,
 };
-pub use syntax::{Diagnostic, DiagnosticPhase, Error, RelatedInformation, Result, Severity, Site, SourceSpan, Type};
+pub use syntax::{
+    Diagnostic, DiagnosticPhase, Error, RelatedInformation, Result, Severity, Site, SourceSpan,
+    Type,
+};
 pub use value::Value;
 
 /// Maximum UTF-8 source bytes accepted for one Camel file.
@@ -32,6 +38,15 @@ pub struct CompiledProgram {
     pub(crate) root: PathBuf,
 }
 impl CompiledProgram {
+    /// Stable fingerprint of the analyzed program shape used to reject stale checkpoints.
+    pub fn fingerprint(&self) -> String {
+        let mut hash = 0xcbf29ce484222325u64;
+        for byte in format!("{:?}", self.program).bytes() {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+        format!("fnv1a64:{hash:016x}")
+    }
     pub fn from_source(name: &str, source: &str) -> Result<Self> {
         analyze_source(name, source).into_program()
     }
@@ -39,8 +54,13 @@ impl CompiledProgram {
         name: &str,
         source: &str,
     ) -> std::result::Result<(Self, Vec<Diagnostic>), Vec<Diagnostic>> {
-        let p = parser::parse(name, source)
-            .map_err(|error| vec![Diagnostic::from_error("CAMEL-SYNTAX-001", DiagnosticPhase::Syntax, error)])?;
+        let p = parser::parse(name, source).map_err(|error| {
+            vec![Diagnostic::from_error(
+                "CAMEL-SYNTAX-001",
+                DiagnosticPhase::Syntax,
+                error,
+            )]
+        })?;
         if !p.imports.is_empty() {
             return Err(vec![Diagnostic::from_error(
                 "CAMEL-IMPORT-001",
@@ -55,7 +75,13 @@ impl CompiledProgram {
         if diagnostics.iter().any(|d| d.severity == Severity::Error) {
             return Err(diagnostics);
         }
-        Ok((Self { program: Arc::new(p), root: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")) }, diagnostics))
+        Ok((
+            Self {
+                program: Arc::new(p),
+                root: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+            },
+            diagnostics,
+        ))
     }
     pub fn load(path: impl AsRef<Path>) -> Result<Self> {
         analyze_file(path).into_program()
@@ -129,7 +155,11 @@ impl CompiledProgram {
         )
         .map_err(|error| {
             let phase = error.phase;
-            let code = if phase == DiagnosticPhase::Syntax { "CAMEL-SYNTAX-001" } else { "CAMEL-ANALYSIS-001" };
+            let code = if phase == DiagnosticPhase::Syntax {
+                "CAMEL-SYNTAX-001"
+            } else {
+                "CAMEL-ANALYSIS-001"
+            };
             vec![Diagnostic::from_error(code, phase, error)]
         })?;
         let mut diagnostics = checked_diagnostics(&merged);
@@ -139,7 +169,13 @@ impl CompiledProgram {
         if diagnostics.iter().any(|d| d.severity == Severity::Error) {
             return Err(diagnostics);
         }
-        Ok((Self { program: Arc::new(merged), root: entry.parent().unwrap().to_path_buf() }, diagnostics))
+        Ok((
+            Self {
+                program: Arc::new(merged),
+                root: entry.parent().unwrap().to_path_buf(),
+            },
+            diagnostics,
+        ))
     }
     pub fn parse_arguments(&self, entry: &str, raw: &[String]) -> Result<Vec<Value>> {
         let params = self.entry_parameters(entry)?;

@@ -9,7 +9,9 @@ pub struct AnalysisResult {
 }
 
 impl AnalysisResult {
-    fn from_result(result: std::result::Result<(CompiledProgram, Vec<Diagnostic>), Vec<Diagnostic>>) -> Self {
+    fn from_result(
+        result: std::result::Result<(CompiledProgram, Vec<Diagnostic>), Vec<Diagnostic>>,
+    ) -> Self {
         match result {
             Ok((program, diagnostics)) => Self {
                 declarations: program.declarations(),
@@ -37,11 +39,18 @@ impl AnalysisResult {
     }
 
     pub fn is_valid(&self) -> bool {
-        self.program.is_some() && !self.diagnostics.iter().any(|d| d.severity == super::Severity::Error)
+        self.program.is_some()
+            && !self
+                .diagnostics
+                .iter()
+                .any(|d| d.severity == super::Severity::Error)
     }
 
     pub fn into_program(self) -> Result<CompiledProgram> {
-        let error = self.diagnostics.into_iter().find(|d| d.severity == super::Severity::Error);
+        let error = self
+            .diagnostics
+            .into_iter()
+            .find(|d| d.severity == super::Severity::Error);
         match (self.program, error) {
             (Some(program), _) => Ok(program),
             (None, Some(diagnostic)) => Err(diagnostic.to_error()),

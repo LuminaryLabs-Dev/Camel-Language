@@ -1,7 +1,105 @@
 use camel_audio_runtime::language::{
-    analyze_source, CompiledProgram, Engine, ExecutionEvent, Host, Severity,
+    analyze_buffer, analyze_file, analyze_source, CompiledProgram, Engine, ExecutionEvent, Host,
+    Severity,
 };
 use std::sync::{Arc, Mutex};
+
+#[test]
+fn file_buffer_and_source_analysis_return_matching_diagnostics() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("parity.camel");
+    std::fs::write(&path, "").unwrap();
+    let path = path.canonicalize().unwrap();
+    let file_name = path.display().to_string();
+
+    for source in [
+        "workflow void Main() { int first = \"bad\"; int second = false; }",
+        "workflow void Main(int unused) {}",
+    ] {
+        std::fs::write(&path, source).unwrap();
+        let from_file = analyze_file(&path);
+        let from_buffer = analyze_buffer(&path, source);
+        let from_source = analyze_source(&file_name, source);
+
+        let signature = |result: &camel_audio_runtime::language::AnalysisResult| {
+            result
+                .diagnostics()
+                .iter()
+                .map(|diagnostic| {
+                    let span = &diagnostic.primary_span;
+                    (
+                        format!("{:?}", diagnostic.severity),
+                        format!("{:?}", diagnostic.phase),
+                        diagnostic.code.clone(),
+                        diagnostic.message.clone(),
+                        span.start.line,
+                        span.start.column,
+                        span.start.offset,
+                        span.end.line,
+                        span.end.column,
+                        span.end.offset,
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let expected = signature(&from_file);
+        assert_eq!(signature(&from_buffer), expected);
+        assert_eq!(signature(&from_source), expected);
+        assert_eq!(from_file.is_valid(), from_buffer.is_valid());
+        assert_eq!(from_file.is_valid(), from_source.is_valid());
+    }
+}
+
+#[test]
+fn imported_file_diagnostics_keep_the_imported_source_span_across_entry_modes() {
+    let dir = tempfile::tempdir().unwrap();
+    let entry = dir.path().join("main.camel");
+    let imported = dir.path().join("support.camel");
+    let entry_source = "import \"support.camel\"; workflow int Main() { return Helper(); }";
+    let imported_source = "int Helper() { int invalid = \"wrong\"; return 1; }";
+    std::fs::write(&entry, entry_source).unwrap();
+    std::fs::write(&imported, imported_source).unwrap();
+    let entry = entry.canonicalize().unwrap();
+    let imported = imported.canonicalize().unwrap();
+
+    let file = analyze_file(&entry);
+    let buffer = analyze_buffer(&entry, entry_source);
+    let diagnostic = file
+        .diagnostics()
+        .iter()
+        .find(|diagnostic| diagnostic.code == "CAMEL-TYPE-001")
+        .expect("imported type diagnostic");
+    assert_eq!(
+        diagnostic.primary_span.start.file,
+        imported.display().to_string()
+    );
+    assert_eq!(diagnostic.primary_span.start.line, 1);
+    assert_eq!(
+        diagnostic.primary_span.end.offset,
+        imported_source.find("\"wrong\"").unwrap() + 7
+    );
+    let signature = |result: &camel_audio_runtime::language::AnalysisResult| {
+        result
+            .diagnostics()
+            .iter()
+            .map(|diagnostic| {
+                (
+                    diagnostic.code.clone(),
+                    diagnostic.message.clone(),
+                    diagnostic.primary_span.start.file.clone(),
+                    diagnostic.primary_span.start.line,
+                    diagnostic.primary_span.start.column,
+                    diagnostic.primary_span.start.offset,
+                    diagnostic.primary_span.end.line,
+                    diagnostic.primary_span.end.column,
+                    diagnostic.primary_span.end.offset,
+                    diagnostic.phase,
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(signature(&buffer), signature(&file));
+}
 
 #[test]
 fn analyze_source_returns_program_metadata_and_structured_diagnostic() {
@@ -191,7 +289,12 @@ fn live_events_survive_errors_and_observer_panics_do_not_break_execution() {
     assert!(Engine::new(p.clone(), host).run("Main", vec![]).is_err());
     let events = events.lock().unwrap();
     assert!(matches!(events.first(),Some(ExecutionEvent::Started{kind,..}) if kind=="workflow"));
-    assert!(matches!(&events[1],ExecutionEvent::Log{text} if text=="before"));
+    assert!(events
+        .iter()
+        .any(|event| matches!(event, ExecutionEvent::Log { text } if text == "before")));
+    assert!(events
+        .iter()
+        .any(|event| matches!(event, ExecutionEvent::Budget { .. })));
     assert!(matches!(
         events.last(),
         Some(ExecutionEvent::Finished { success: false, .. })

@@ -47,8 +47,7 @@ fn interpreted_agent_round_trips_through_real_http_adapter() {
             .contains("authorization: bearer test-token"));
         let request: serde_json::Value =
             serde_json::from_slice(&bytes[header_len..header_len + body_len]).unwrap();
-        let response =
-            r#"{"choices":[{"message":{"role":"assistant","content":"{\"answer\":7}"}}]}"#;
+        let response = r#"{"choices":[{"message":{"role":"assistant","content":"{\"answer\":7}"}}],"usage":{"total_tokens":12}}"#;
         write!(socket,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",response.len(),response).unwrap();
         request
     });
@@ -69,4 +68,5 @@ fn interpreted_agent_round_trips_through_real_http_adapter() {
     let request = server.join().unwrap();
     assert_eq!(request["model"], "test-model");
     assert_eq!(request["messages"][1]["content"], "question");
+    assert_eq!(request["max_tokens"], 32_768);
 }

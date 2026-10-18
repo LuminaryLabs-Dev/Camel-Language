@@ -85,7 +85,10 @@ pub fn lex(file: &str, source: &str) -> Result<Vec<Token>> {
                 advance!();
             }
             if i == chars.len() {
-                return Err(Error::at(&through(&site, line, column, byte_offset), "unterminated comment"));
+                return Err(Error::at(
+                    &through(&site, line, column, byte_offset),
+                    "unterminated comment",
+                ));
             }
             advance!();
             advance!();
@@ -102,7 +105,10 @@ pub fn lex(file: &str, source: &str) -> Result<Vec<Token>> {
                 let ch = advance!();
                 if ch == '\\' {
                     if i == chars.len() {
-                        return Err(Error::at(&through(&site, line, column, byte_offset), "unterminated escape"));
+                        return Err(Error::at(
+                            &through(&site, line, column, byte_offset),
+                            "unterminated escape",
+                        ));
                     }
                     value.push(match advance!() {
                         'n' => '\n',
@@ -110,14 +116,22 @@ pub fn lex(file: &str, source: &str) -> Result<Vec<Token>> {
                         't' => '\t',
                         '"' => '"',
                         '\\' => '\\',
-                        other => return Err(Error::at(&through(&site, line, column, byte_offset), format!("invalid escape \\{other}"))),
+                        other => {
+                            return Err(Error::at(
+                                &through(&site, line, column, byte_offset),
+                                format!("invalid escape \\{other}"),
+                            ))
+                        }
                     });
                 } else {
                     value.push(ch);
                 }
             }
             if i == chars.len() {
-                return Err(Error::at(&through(&site, line, column, byte_offset), "unterminated string"));
+                return Err(Error::at(
+                    &through(&site, line, column, byte_offset),
+                    "unterminated string",
+                ));
             }
             advance!();
             Kind::Text(value, interpolation)
@@ -151,7 +165,10 @@ pub fn lex(file: &str, source: &str) -> Result<Vec<Token>> {
                 advance!();
                 Kind::Symbol(c.to_string())
             } else {
-                return Err(Error::at(&through(&site, line, column + 1, byte_offset + c.len_utf8()), format!("unexpected character '{c}'")));
+                return Err(Error::at(
+                    &through(&site, line, column + 1, byte_offset + c.len_utf8()),
+                    format!("unexpected character '{c}'"),
+                ));
             }
         };
         site.end_line = line;

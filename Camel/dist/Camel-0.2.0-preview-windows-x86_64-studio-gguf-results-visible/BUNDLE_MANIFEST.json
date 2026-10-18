@@ -1,0 +1,366 @@
+[
+  {
+    "path": ".github/workflows/distribution.yml",
+    "sha256": "1298c8b2457d9c7d8e956e6fed4fde3905f1af83d62b44f6c3b9646193548968"
+  },
+  {
+    "path": ".gitignore",
+    "sha256": "9c2027aa96cdba5ffbd8fce9f1adcf8e836dca7c2408c541b08394b73149abb3"
+  },
+  {
+    "path": "bin/camel-audio-runtime.exe",
+    "sha256": "55abd0ab07ac415deb05ea6a880ba8dc0e5544e8b1b1b54547c5b551e73af2b4"
+  },
+  {
+    "path": "bin/camel-studio.exe",
+    "sha256": "cb0bce1d91264b9d71fe2ee76c3d698719851adbe57728adb57edb1c848b7fb1"
+  },
+  {
+    "path": "bin/camel.exe",
+    "sha256": "f46207638a04bd4512a32212b8b895bf48c1be492d71beb73f0c1d0f811bf4ed"
+  },
+  {
+    "path": "Camel-Setup.exe",
+    "sha256": "bdadbdde8084355ee4f04352773e363c91a2aa795721672d1b038587874d0456"
+  },
+  {
+    "path": "Camel/docs/AUDIO_NOTE_SUMMARIZER.md",
+    "sha256": "050dd2095e3d5d2fb52d7ad21fc6401b241dee422a7750388c4687b065d675c6"
+  },
+  {
+    "path": "Camel/examples/agent_planner.camel",
+    "sha256": "e8313850681ea4460ab6410a325586da393f6409623be8f63efc5123bf045341"
+  },
+  {
+    "path": "Camel/examples/audio_note_summarizer_installed.camel",
+    "sha256": "f59de421a70450876845256ca64729af0478a093055bd9ac9163b0a9f36cee3a"
+  },
+  {
+    "path": "Camel/examples/audio_note_summarizer.camel",
+    "sha256": "45dfb5a105b323b375042e039de0d81250019f0454f8492dd9e497f93eae390e"
+  },
+  {
+    "path": "Camel/examples/modules/integer_math.camel",
+    "sha256": "2007cc06eb25121a59d87d47d9a579fc76055d2d49bfb9a441dfc97c64a8dba2"
+  },
+  {
+    "path": "Camel/examples/multi_model_review.camel",
+    "sha256": "92a05948dbdede20ca26e821002335b04141ac4ec0b9efb0bfc5ba96e0479994"
+  },
+  {
+    "path": "Camel/examples/orchestration.camel",
+    "sha256": "d1bde841ae4c4e5352c2065fff7caf2c53b4fd46e78a8a9e1169d7865e67c3aa"
+  },
+  {
+    "path": "Camel/examples/programming_core.camel",
+    "sha256": "42660045831e230cf6a46cf2a01e8bdcdb605425fcd4408f827fe0bfdee5e7e1"
+  },
+  {
+    "path": "conformance/0.2/fail/assignment.camel",
+    "sha256": "8ca1b43c27c4ada6565f525ecec235180ad712daa0aa51bd6e0890e255f51ef5"
+  },
+  {
+    "path": "conformance/0.2/fail/call-argument.camel",
+    "sha256": "440002706106e7efa2053baf3458442b90abbc76193c723d127230bba9d87a36"
+  },
+  {
+    "path": "conformance/0.2/fail/condition.camel",
+    "sha256": "d1e7e402fedea09fb8f21f9c5899faef36a3cf03da2480fc0b256440850c711f"
+  },
+  {
+    "path": "conformance/0.2/fail/default-value.camel",
+    "sha256": "d3e531601d0d34d9837c9fa10c2d45f8b47d27bdec4bb00ea74ccae816c31976"
+  },
+  {
+    "path": "conformance/0.2/fail/return.camel",
+    "sha256": "ee343c1f3b6ac2c2581205bcd2c7ef7bc74f9df75058a514a34af5f396b3e4ce"
+  },
+  {
+    "path": "conformance/0.2/fail/version.camel",
+    "sha256": "ff17e6103facde7d6bfe6c555242074eac1f9059631d37a14f9aab90914f5f20"
+  },
+  {
+    "path": "conformance/0.2/manifest.json",
+    "sha256": "9633b9ead4887e5ebab12333d6fef0c9c3bab3a0a33a2d8dfb5394d70a7812e2"
+  },
+  {
+    "path": "conformance/0.2/pass/gradual-boundary.camel",
+    "sha256": "d819cb919d62f792044d9bd32e954306de878e91f6c543d8d248c5935d1d5725"
+  },
+  {
+    "path": "conformance/0.2/pass/typed-program.camel",
+    "sha256": "60c43abf1855b069cc629f0657be200fc0e9e87b50513282069b10e02785fe61"
+  },
+  {
+    "path": "conformance/README.md",
+    "sha256": "84c32da77a1a67f87b4baa3d3a7e567c8bd52f72962fde9301ddc8ed1fdb9509"
+  },
+  {
+    "path": "docs/images/camel-logo-512.png",
+    "sha256": "07d20084d268b4248713cfc98defe0df9cb0de2acec53157b678da164f1aaf3d"
+  },
+  {
+    "path": "docs/images/camel-logo.png",
+    "sha256": "c1663a6f66018fd4ffe389746a4b2f10d392f90d9de91ed78a0a8054bac9d130"
+  },
+  {
+    "path": "docs/images/camel-studio.png",
+    "sha256": "7c94e3c384cd52307cf91a45c47d621c4829595d7a7f7dd696cceed4a3ed810a"
+  },
+  {
+    "path": "docs/INSTALLATION.md",
+    "sha256": "cb70c6d22fe74f264dffce90f756b7233d3bf8e3da9799248c55a81eb62fb60e"
+  },
+  {
+    "path": "docs/LANGUAGE_SPEC.md",
+    "sha256": "521ec89d65bae623a972d9ae14ad6dc91a15a93d28f4a2dbde0fa7edbd3a157c"
+  },
+  {
+    "path": "docs/REPOSITORY_RECOVERY.md",
+    "sha256": "d21ecca3a9c2672f34211ee9d28ca536949458913396a9cbc353526ad66ca8ad"
+  },
+  {
+    "path": "installer/Cargo.lock",
+    "sha256": "8342972883fbfcaf668508e29e9a3ece49ae364e9abbfac3085968f436234cb3"
+  },
+  {
+    "path": "installer/Cargo.toml",
+    "sha256": "03d6d07204c14c10790c0e4b1a7a755ec4e0b0d7b1c2245dc41d412bae109f80"
+  },
+  {
+    "path": "installer/README.md",
+    "sha256": "50ca559a4b848579aa905671d99d5fe2665d89c913214f7846b6f1caf3b43ae7"
+  },
+  {
+    "path": "installer/src/bundle.rs",
+    "sha256": "ace326bb9817ce347c436ecc3f70f14c980ab4512c585d7510a63b3fa574b081"
+  },
+  {
+    "path": "installer/src/install.rs",
+    "sha256": "c73343bb114831e73b261d5f874f682af5cec9a056d14b7749b873c723fff8fb"
+  },
+  {
+    "path": "installer/src/lib.rs",
+    "sha256": "44d9d2c804e729a9c8b4e8e8c83dbb3ad510388f088fbffd38dc21bc0ff5723f"
+  },
+  {
+    "path": "installer/src/main.rs",
+    "sha256": "2a77cea6bc0a8dfbd8e7c398fdec812ca1be8e3c50fa051310d03f7893cbb251"
+  },
+  {
+    "path": "installer/src/path.rs",
+    "sha256": "54b0fc540348eb7b737865d0921d43c4eb85496f4ce07cb661bb893a69f3c213"
+  },
+  {
+    "path": "installer/src/ui.rs",
+    "sha256": "eaf15327cdf29cb1535ced37da7b7a284b007a827087bda932e8897226e4f4e3"
+  },
+  {
+    "path": "libraries/audio/note_summarizer.camel",
+    "sha256": "5c5dd58abf7ed75c44d330eee056e49aaae69fe0727a1670aa9350b40f8e338b"
+  },
+  {
+    "path": "libraries/index.json",
+    "sha256": "5c8d16234d132aa12c7dd9b662575d0b1e1ec7b6df5c3f6c14c5f6df8c96ae2f"
+  },
+  {
+    "path": "libraries/README.md",
+    "sha256": "892f532634d50225332a928e991b90cec53b7d63b38023947f045b6dcc3f3f62"
+  },
+  {
+    "path": "libraries/standard/core.camel",
+    "sha256": "7d5a41437e1bcb1a9bce86a037d5c3a076abf8b9b8fd489ec214915ca334be2b"
+  },
+  {
+    "path": "LICENSE",
+    "sha256": "313605fbac6945e9324d4825470796b5b7dbc012f523fdc181f6e6fd234eb88f"
+  },
+  {
+    "path": "packages/camel-library-manager/Cargo.lock",
+    "sha256": "cc72af52e1b7aa2d75256e9b4b88a34874c1fe6e5131b71bbea1cff9942c18a5"
+  },
+  {
+    "path": "packages/camel-library-manager/Cargo.toml",
+    "sha256": "52722dd77e6aa93d981f10192b4386a36d119cd1c1c10b0811f55136eca51935"
+  },
+  {
+    "path": "packages/camel-library-manager/LICENSE",
+    "sha256": "313605fbac6945e9324d4825470796b5b7dbc012f523fdc181f6e6fd234eb88f"
+  },
+  {
+    "path": "packages/camel-library-manager/README.md",
+    "sha256": "b36fe7c5437fa340cc6cd76e19380c747c415b67c824fc8943ed67dc24196821"
+  },
+  {
+    "path": "packages/camel-library-manager/src/lib.rs",
+    "sha256": "0efec769c688134b44be76cfe52296a3c9d3c5474c2b888b373dcd463e235a7e"
+  },
+  {
+    "path": "packages/README.md",
+    "sha256": "1ecf332a255d072f1c6d39d7404edd6d91ff522498a1dba0950a002c3551f8ec"
+  },
+  {
+    "path": "README.md",
+    "sha256": "a58024936b9bbf5e65cdcad8a108c80f29f3522be28a6564e605182b0e818811"
+  },
+  {
+    "path": "runtime/Cargo.lock",
+    "sha256": "ed741673c7bf8e0e7029f9627e4a16b79b542365e9ef173eba55b89334363f42"
+  },
+  {
+    "path": "runtime/Cargo.toml",
+    "sha256": "ead11d603b6bee19dc15e86b16799a8d2986059ffce836323c3030f20f8b2177"
+  },
+  {
+    "path": "runtime/README.md",
+    "sha256": "3a86139ca0088c156b9e0399e574ed491ac77ba94c36350dcbbd8d63347747c0"
+  },
+  {
+    "path": "runtime/src/bin/camel-audio-runtime.rs",
+    "sha256": "3a17d91aa87a2149f0d3c44081685df74b4bc826d97a812fb3bbd6055af1db07"
+  },
+  {
+    "path": "runtime/src/language/agents.rs",
+    "sha256": "0032379c5d03bde1e3bf17c4a82382ccc78a4be217cc8e430c09e63271cedfb7"
+  },
+  {
+    "path": "runtime/src/language/analysis.rs",
+    "sha256": "1c3eab7798f96ec515a5af17c8b013b619c5726783f8ab5bc3661fd7e628980e"
+  },
+  {
+    "path": "runtime/src/language/check.rs",
+    "sha256": "c7eeafa9a733a425dd5482ad13c5188ea6b3435b6908107b38c53d9f706ee25d"
+  },
+  {
+    "path": "runtime/src/language/eval.rs",
+    "sha256": "1b6e0646c43de45d1ba7ced17e11ecdbf0100939806812feeb884d8ab41c7096"
+  },
+  {
+    "path": "runtime/src/language/host.rs",
+    "sha256": "7ff368540a02def081b6ccbbdf7146f3b824555b0991ce637e5bcfe73cdf7030"
+  },
+  {
+    "path": "runtime/src/language/inspect.rs",
+    "sha256": "caa5ceb0cb880a71101e0b2893c3b2e570a8764f7cc252a42911a345f4fd83af"
+  },
+  {
+    "path": "runtime/src/language/lexer.rs",
+    "sha256": "e2d8c4a8bff2cf761d1cf9aafee23dd782d5e113dcb924e462a73b79a8ebda07"
+  },
+  {
+    "path": "runtime/src/language/lint.rs",
+    "sha256": "73608bff35c353c14b3df8ba5251f4d8e8bdaaa069c13962b997392d6acf4659"
+  },
+  {
+    "path": "runtime/src/language/mod.rs",
+    "sha256": "6e0978fb145dd9df083de5246bab25056f1cfbc07eafed9cb0d5963d0b613493"
+  },
+  {
+    "path": "runtime/src/language/parser.rs",
+    "sha256": "57d059010c2a967052a1e017cec757c9772c50fbe5b45799bf4bced2d73f9b09"
+  },
+  {
+    "path": "runtime/src/language/static_types.rs",
+    "sha256": "655421e86c79540dc5561e369859d36207589a73598603dcefd8edd159df0c37"
+  },
+  {
+    "path": "runtime/src/language/syntax.rs",
+    "sha256": "0454edae4e8156bc3daf3a82f2765495865a0191960192d7d9aa99233c94a2ff"
+  },
+  {
+    "path": "runtime/src/language/value.rs",
+    "sha256": "7e4d7346d674d9dfd631ff9beb84d993b4daf83251ca3c648f273eb20f1dbc83"
+  },
+  {
+    "path": "runtime/src/lib.rs",
+    "sha256": "87bcdc5c2995e1082282e21a2389b6fd62154b7c698c599112ba021358f24a79"
+  },
+  {
+    "path": "runtime/src/main.rs",
+    "sha256": "746b2169a1478cf899c7667101eda550c582129248f608c0e1935fc725eb583a"
+  },
+  {
+    "path": "runtime/tests/cli.rs",
+    "sha256": "dee2704e91d9b062997c4e907d6ba4c687ca1be6d9367f935433de515e3a7029"
+  },
+  {
+    "path": "runtime/tests/conformance.rs",
+    "sha256": "4722c259af4e32bed6a96955885e541006010242ff6aef619e6e0f68cc8ae009"
+  },
+  {
+    "path": "runtime/tests/http_provider.rs",
+    "sha256": "ed132fd136807e9bfaaa70fa30ef573370e6596668a1230b51b7618d8cc85662"
+  },
+  {
+    "path": "runtime/tests/language.rs",
+    "sha256": "04983bf7ff0c803f18ec16e9e926b97f1d465d184e58805153ee1490d6fb96ef"
+  },
+  {
+    "path": "runtime/tests/studio_api.rs",
+    "sha256": "9bb67665c4a5beb14bb79104050c13da38571848ca9546aa5318bda54f49e794"
+  },
+  {
+    "path": "scripts/install.sh",
+    "sha256": "c371cdd052a79dd526c3ff267cc7ad28a8f21e87f396b7d1b954a488200c36a2"
+  },
+  {
+    "path": "scripts/package-preview.ps1",
+    "sha256": "166560f66552e3320394858cd166250e4b0e4d7c7f83f33f634d6f5767c4015f"
+  },
+  {
+    "path": "studio/Cargo.lock",
+    "sha256": "efac0bafc1706959b425d4b6069d216f657d6b460af4007996a53429de0dcf3c"
+  },
+  {
+    "path": "studio/Cargo.toml",
+    "sha256": "2330b795317807bccbeddc15a9ef955c8d62bd4d8d7da81a559f61fe5c47dc30"
+  },
+  {
+    "path": "studio/README.md",
+    "sha256": "7c199479c403e4a51131e21fa475b53aa10e0115756a549d21db6b8ace2ca9c0"
+  },
+  {
+    "path": "studio/src/app.rs",
+    "sha256": "3334e17ddfa4659127d83d2188baf5193208ee32f8f7fd04115abfd4669a9070"
+  },
+  {
+    "path": "studio/src/capture.rs",
+    "sha256": "cacd0b906d7fe5887cbe31e16085106b0ae22778354f931d7c8c15d7bd72a2cc"
+  },
+  {
+    "path": "studio/src/document.rs",
+    "sha256": "036258fb4fd703dc454072af8ba0a8e91a03827c8cd793c4f6d0879cae8fba1f"
+  },
+  {
+    "path": "studio/src/editor.rs",
+    "sha256": "99c7b384d0c7bc61422b91c3c000ec3c2cd4512fd6a95f19f5610435a4276dbd"
+  },
+  {
+    "path": "studio/src/lib.rs",
+    "sha256": "0ea9fb6953fdc080cd05100a717b59011ae9f612334c5203484f7236af434028"
+  },
+  {
+    "path": "studio/src/library_manager.rs",
+    "sha256": "120535353cb4f564f300abbf442379691458ef6c06440c8ef8769a402144db4f"
+  },
+  {
+    "path": "studio/src/main.rs",
+    "sha256": "1a963a94320903a9058a27a721ac09a26ccac665830d5f8fa579afa09fb6792d"
+  },
+  {
+    "path": "studio/src/model_manager.rs",
+    "sha256": "cd8ccbf65df76bd7de3b74ba9975c21fa5fea9368598536c97199796ae40bfe1"
+  },
+  {
+    "path": "studio/src/runner.rs",
+    "sha256": "b324e38de00aa8511b76c6bf1ad7226fc0f5fbf10b80f97c26e15f75b2d60876"
+  },
+  {
+    "path": "studio/src/worker.rs",
+    "sha256": "bf61c52fe77891891c61d9376e9a56125918477ae8301fbf631980e87f58abd5"
+  },
+  {
+    "path": "studio/tests/worker.rs",
+    "sha256": "b940fbef11ee5f0d456bcf6b119a32a1e5a6c72e53e68f1b786ec89be0c1d54d"
+  }
+]

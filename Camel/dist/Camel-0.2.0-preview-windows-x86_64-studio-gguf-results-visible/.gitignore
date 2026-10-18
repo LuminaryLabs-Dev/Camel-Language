@@ -1,0 +1,36 @@
+# Rust build output
+**/target/
+
+# Local executables and packaged distributions
+*.exe
+*.dll
+*.pdb
+*.zip
+
+# Keep source demos and distribution instructions visible
+!Camel/dist/Camel-Trees-Demo/*.camel
+!Camel/dist/Camel-Trees-Demo/*.md
+!Camel/dist/Camel-Trees-Demo/*.ps1
+
+# Runtime output created by demos
+**/logs/
+**/encyclopedia/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Editor and operating-system files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Coverage, profiling, and temporary files
+coverage/
+*.profraw
+*.log
+*.tmp

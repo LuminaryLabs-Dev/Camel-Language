@@ -152,6 +152,7 @@ impl StaticChecker<'_> {
                 }
             }
             StmtKind::Break | StmtKind::Continue => {}
+            StmtKind::Checkpoint(_) => {}
         }
         Ok(())
     }
@@ -195,8 +196,17 @@ impl StaticChecker<'_> {
                     (Type::Array(_), "length") => Ok(Type::named("int")),
                     (Type::Named(n), field) if n == "AgentResult" => Ok(match field {
                         "text" | "model" => Type::named("string"),
-                        "toolCalls" => Type::Array(Box::new(Type::named("object"))),
+                        "toolCalls" => Type::named("int"),
                         "data" => Type::named("any"),
+                        "provenance" => Type::named("EvidenceProvenance"),
+                        _ => Type::named("any"),
+                    }),
+                    (Type::Named(n), field) if n == "EvidenceProvenance" => Ok(match field {
+                        "agent" | "model" | "file" | "sourceFingerprint" => Type::named("string"),
+                        "line" | "column" | "offset" | "endLine" | "endColumn" | "endOffset" => {
+                            Type::named("int")
+                        }
+                        "tools" => Type::Array(Box::new(Type::named("string"))),
                         _ => Type::named("any"),
                     }),
                     (Type::Named(n), field) if self.program.records.contains_key(n) => self

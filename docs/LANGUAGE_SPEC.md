@@ -1,4 +1,4 @@
-# Camel 0.2.0 preview language specification
+# Camel v.0.3.0 language specification (edition 0.2)
 
 Status: implemented interpreter baseline, not a stable 1.0 contract. This document describes `runtime/`, not every feature claimed by the recovered alpha article. Where they differ, this specification and executable conformance tests define the preview.
 
@@ -58,7 +58,7 @@ statement    := block | declaration-statement | assignment ';' | expression ';'
              | 'for' '(' simple ';' expression ';' simple ')' statement
              | 'foreach' '(' (type | 'var') NAME 'in' expression ')' statement
              | 'return' [expression] ';' | ('break' | 'continue') ';'
-             | 'throw' expression ';'
+             | 'throw' expression ';' | 'checkpoint' '(' STRING ')' ';'
              | 'try' block ['catch' '(' NAME ')' block] ['finally' block]
 declaration-statement := (type | 'var') NAME '=' expression ';'
 assignment   := assignable ('=' | '+=' | '-=') expression | assignable ('++' | '--')
@@ -66,6 +66,8 @@ assignable   := local-variable ['.' NAME | '[' expression ']']*
 ```
 
 At least one of `catch` or `finally` must follow `try`. The `for` initializer and step are simple declarations, assignments, updates or expressions; the condition is required. Trailing commas are not implemented.
+
+`checkpoint("label");` is valid only as a direct statement in a workflow body. The runtime can persist and resume at these explicit boundaries when the CLI receives `--checkpoint` or `--resume`. Checkpoint state accepts JSON-serializable bindings only; it rejects boundaries with unfinished tasks. It stores active-run budgets and logs, validates the workflow fingerprint on resume, and does not reverse effects that completed before the checkpoint.
 
 Expressions include literals, identifiers, arrays, `new { field = expression, ... }`, `new RecordName { ... }`, calls, members, indexes and interpolated strings `$"literal {expression}"`. Escape interpolation braces as `{{` and `}}`; embedded quotes must be escaped in the outer string.
 
@@ -75,7 +77,7 @@ Operand, argument, array-item and object-initializer evaluation follows source o
 
 ## Values, scope and types
 
-Types: `int`, `double`, `bool`, `string`, `any`, `object`, `Audio`, `Agent`, `Tool`, `Function`, `AgentResult`, declared records, `T[]`, and `Task<T>`. `void` is only a function/workflow/tool return type or task result type. Type and declaration keywords are reserved as applicable.
+Types: `int`, `double`, `bool`, `string`, `any`, `object`, `Audio`, `Agent`, `Tool`, `Function`, `AgentResult`, `EvidenceProvenance`, declared records, `T[]`, and `Task<T>`. `void` is only a function/workflow/tool return type or task result type. Type and declaration keywords are reserved as applicable.
 
 Record contracts are structural and exact: every declared field must exist, no undeclared fields are accepted, and nested values must conform. `new RecordName` checks its fields. `new { ... }` is an untyped object. Arrays have value semantics; string and array indexes are zero-based. Strings index Unicode scalar values, not bytes or grapheme clusters.
 

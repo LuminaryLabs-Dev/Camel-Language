@@ -159,6 +159,7 @@ impl Usage {
                 }
             }
             StmtKind::Break | StmtKind::Continue => {}
+            StmtKind::Checkpoint(_) => {}
         }
     }
 

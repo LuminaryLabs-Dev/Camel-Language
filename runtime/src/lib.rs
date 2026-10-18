@@ -402,9 +402,14 @@ impl LmStudioClient {
             request = request.bearer_auth(token);
         }
         let body: Value = request.send()?.error_for_status()?.json()?;
-        body.pointer("/choices/0/message")
+        let mut message = body
+            .pointer("/choices/0/message")
             .cloned()
-            .ok_or_else(|| RuntimeError::Model("missing assistant message".into()))
+            .ok_or_else(|| RuntimeError::Model("missing assistant message".into()))?;
+        if let Some(usage) = body.get("usage") {
+            message["usage"] = usage.clone();
+        }
+        Ok(message)
     }
     pub fn from_environment() -> Result<Self, RuntimeError> {
         let endpoint =

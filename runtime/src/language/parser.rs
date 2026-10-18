@@ -4,6 +4,8 @@ use super::{
 };
 use std::collections::BTreeMap;
 
+const MAX_PARSER_NESTING: usize = 32;
+
 pub fn parse(file: &str, source: &str) -> Result<Program> {
     let tokens = lex(file, source).map_err(|mut error| {
         error.phase = DiagnosticPhase::Syntax;
@@ -14,7 +16,8 @@ pub fn parse(file: &str, source: &str) -> Result<Program> {
         i: 0,
         depth: 0,
     }
-    .program().map_err(|mut error| {
+    .program()
+    .map_err(|mut error| {
         error.phase = DiagnosticPhase::Syntax;
         error
     })
@@ -57,8 +60,11 @@ impl Parser {
     }
     fn ty(&mut self) -> Result<Type> {
         self.depth += 1;
-        if self.depth > 128 {
-            return Err(Error::at(&self.site(), "parser nesting exceeds 128"));
+        if self.depth > MAX_PARSER_NESTING {
+            return Err(Error::at(
+                &self.site(),
+                format!("parser nesting exceeds {MAX_PARSER_NESTING}"),
+            ));
         }
         let result = self.type_inner();
         self.depth -= 1;
@@ -77,8 +83,11 @@ impl Parser {
         let mut rank = 0;
         while self.eat("[") {
             rank += 1;
-            if rank + self.depth > 128 {
-                return Err(Error::at(&self.site(), "type nesting exceeds 128"));
+            if rank + self.depth > MAX_PARSER_NESTING {
+                return Err(Error::at(
+                    &self.site(),
+                    format!("type nesting exceeds {MAX_PARSER_NESTING}"),
+                ));
             }
             self.need("]")?;
             t = Type::Array(Box::new(t));
@@ -98,7 +107,12 @@ impl Parser {
                 } else {
                     None
                 };
-                out.push(Param { name, ty, site, default });
+                out.push(Param {
+                    name,
+                    ty,
+                    site,
+                    default,
+                });
                 if self.eat(")") {
                     break;
                 }
@@ -253,8 +267,11 @@ impl Parser {
     }
     fn stmt(&mut self) -> Result<Stmt> {
         self.depth += 1;
-        if self.depth > 128 {
-            return Err(Error::at(&self.site(), "parser nesting exceeds 128"));
+        if self.depth > MAX_PARSER_NESTING {
+            return Err(Error::at(
+                &self.site(),
+                format!("parser nesting exceeds {MAX_PARSER_NESTING}"),
+            ));
         }
         let result = self.statement_inner();
         self.depth -= 1;
@@ -264,6 +281,26 @@ impl Parser {
         let mut site = self.site();
         let kind = if self.is("{") {
             return self.block();
+        } else if self.eat("checkpoint") {
+            self.need("(")?;
+            let label = match self.tokens[self.i].kind.clone() {
+                Kind::Text(label, false) => {
+                    self.i += 1;
+                    label
+                }
+                _ => {
+                    return Err(Error::at(
+                        &self.site(),
+                        "checkpoint requires a string label",
+                    ))
+                }
+            };
+            if label.trim().is_empty() {
+                return Err(Error::at(&site, "checkpoint label cannot be empty"));
+            }
+            self.need(")")?;
+            self.need(";")?;
+            StmtKind::Checkpoint(label)
         } else if self.eat("if") {
             let c = self.condition()?;
             let b = Box::new(self.stmt()?);
@@ -393,8 +430,11 @@ impl Parser {
     }
     fn expr(&mut self, min: u8) -> Result<Expr> {
         self.depth += 1;
-        if self.depth > 128 {
-            return Err(Error::at(&self.site(), "parser nesting exceeds 128"));
+        if self.depth > MAX_PARSER_NESTING {
+            return Err(Error::at(
+                &self.site(),
+                format!("parser nesting exceeds {MAX_PARSER_NESTING}"),
+            ));
         }
         let result = self.expression_inner(min);
         self.depth -= 1;
@@ -626,8 +666,11 @@ impl Parser {
 }
 
 fn expression_depth(e: &Expr, depth: usize) -> Result<()> {
-    if depth > 128 {
-        return Err(Error::at(&e.site, "expression nesting exceeds 128"));
+    if depth > MAX_PARSER_NESTING {
+        return Err(Error::at(
+            &e.site,
+            format!("expression nesting exceeds {MAX_PARSER_NESTING}"),
+        ));
     }
     match &e.kind {
         ExprKind::Array(items) | ExprKind::Interpolate(items) => {

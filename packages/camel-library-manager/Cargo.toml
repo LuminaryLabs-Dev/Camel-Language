@@ -1,6 +1,6 @@
 [package]
 name = "camel-library-manager"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.88"
 description = "Discover and manage Camel source libraries from a GitHub catalog"
@@ -13,6 +13,7 @@ categories = ["development-tools"]
 include = ["src/**", "Cargo.toml", "README.md", "LICENSE"]
 
 [dependencies]
+ring = "0.17"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
