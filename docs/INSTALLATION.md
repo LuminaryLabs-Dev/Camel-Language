@@ -18,6 +18,8 @@ Open a new terminal after setup and run:
 camel --version
 ```
 
+To update an existing installation from a local package, extract the full Camel distribution ZIP and open a terminal in that folder. Run `camel --update` if this version is installed, or `./bin/camel --update` (`.\bin\camel.exe --update` on Windows) to bootstrap the command from the extracted bundle. The bundled CLI finds the installed Camel folder through PATH, then opens setup with that folder selected. No network connection is used. Close Camel Studio before installing.
+
 If the terminal was launched from an application that already had an old environment, restart that application or sign out and back in. Setup cannot rewrite the environment of terminals that are already running.
 
 The wizard updates Windows user PATH. On macOS/Linux it adds marked PATH blocks to `.profile`, `.bashrc`, existing `.bash_profile`/`.bash_login`, and zsh `.zprofile`/`.zshrc` (respecting `ZDOTDIR`), plus a fish snippet (respecting `XDG_CONFIG_HOME`). Repeated setup replaces the block rather than duplicating it. Custom shells or dotfiles that later overwrite PATH may need to include `<installation>/bin` themselves.

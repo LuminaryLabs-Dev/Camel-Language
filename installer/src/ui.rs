@@ -43,7 +43,11 @@ pub struct Wizard {
 }
 
 impl Wizard {
-    pub fn new(cc: &eframe::CreationContext<'_>, bundle_root: PathBuf) -> Self {
+    pub fn new(
+        cc: &eframe::CreationContext<'_>,
+        bundle_root: PathBuf,
+        destination: Option<PathBuf>,
+    ) -> Self {
         let mut style = (*cc.egui_ctx.style()).clone();
         style.visuals = egui::Visuals::light();
         style.visuals.panel_fill = Color32::from_rgb(250, 248, 244);
@@ -78,9 +82,11 @@ impl Wizard {
             logo,
             bundle_root,
             bundle,
-            destination: install::default_destination()
-                .map(|p| p.display().to_string())
-                .unwrap_or_default(),
+            destination: destination
+                .or_else(|| install::default_destination().ok())
+                .unwrap_or_default()
+                .display()
+                .to_string(),
             add_to_path: true,
             page: Page::Welcome,
             progress: String::new(),

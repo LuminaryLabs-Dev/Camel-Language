@@ -8,7 +8,7 @@ Version: **0.3.0**. License: **Apache-2.0**.
 
 ## Use from Rust
 
-The package is distributed from GitHub; it has not been published to crates.io. Repository visibility controls access to Git dependencies and package links. The installer currently expects publicly readable GitHub source repositories; it does not authenticate private raw-file downloads.
+The package is distributed from GitHub; it has not been published to crates.io. Repository visibility controls access to Git dependencies and package links. Published GitHub sources must be publicly readable; this client does not authenticate private raw-file downloads. Workspace-only catalog entries can use `localPath` to install from a checkout or bundled package source instead.
 
 ```toml
 [dependencies]
@@ -35,7 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-Other APIs: `installed_root()`, `installed_library(name)`, `resolve_import(path)`, `remove(name)`, `validate(library)`, `create_lock(catalog, roots)`, `read_lock(path)`, `write_lock(path, lock)`, `verify_lock(lock)`, and `install_locked(lock)`. `catalog(Some(source))` accepts a JSON file path or HTTP(S) URL. Discovery first reads the catalog beside an installed executable's `bin` directory, then the checked-out repository catalog, then GitHub. The package includes no interpreter, microphone backend, GUI, or standalone executable.
+Other APIs: `catalog_local()`, `installed_root()`, `installed_library(name)`, `resolve_import(path)`, `remove(name)`, `validate(library)`, `create_lock(catalog, roots)`, `read_lock(path)`, `write_lock(path, lock)`, `verify_lock(lock)`, and `install_locked(lock)`. `catalog(Some(source))` accepts a JSON file path or HTTP(S) URL. `catalog_local()` reads the catalog beside an installed executable, then the checked-out repository catalog, then an embedded snapshot; it never uses the network. `catalog(None)` retains remote fallback for CLI discovery. Studio uses `catalog_local()` on open and accesses the remote catalog only on Refresh. Caravan is a workspace-only `localPath` entry and installs from `libraries/caravan` in a checkout or bundled payload after verifying its file digest. Remote `standard` and `audio` installation still require public access to their GitHub sources. The package includes no interpreter, microphone backend, GUI, or standalone executable.
 
 ## Camel CLI integration
 
@@ -48,7 +48,7 @@ camel library install standard
 camel library update standard
 camel library remove standard
 camel library list --catalog libraries/index.json
-camel library lock standard audio --output camel.lock
+camel library lock standard audio caravan --output camel.lock
 camel library verify-lock camel.lock
 camel library install-locked camel.lock
 ```

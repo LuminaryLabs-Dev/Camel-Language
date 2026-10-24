@@ -1,0 +1,247 @@
+version "0.2";
+
+// Caravan constructs serializable scene descriptions for a host adapter that
+// submits them to the existing NexusGL scene::CanvasFrame / SceneFrame API.
+// The host remains responsible for rasterization and presenting pixels.
+record CaravanColor {
+    int r;
+    int g;
+    int b;
+    int a;
+}
+
+record CaravanPoint2D {
+    double x;
+    double y;
+}
+
+record CaravanVector3D {
+    double x;
+    double y;
+    double z;
+}
+
+record CaravanDraw2D {
+    string kind;
+    double x;
+    double y;
+    double width;
+    double height;
+    double radius;
+    CaravanPoint2D[] vertices;
+    CaravanColor color;
+}
+
+record CaravanCanvas2D {
+    int width;
+    int height;
+    CaravanColor background;
+    CaravanDraw2D[] draws;
+}
+
+record CaravanGridCell2D {
+    int q;
+    int r;
+    string tileId;
+    CaravanColor color;
+}
+
+// Stores only occupied cells. For hex topology, q/r use axial coordinates.
+record CaravanGrid2D {
+    int columns;
+    int rows;
+    double cellSize;
+    string topology;
+    string plane;
+    CaravanColor background;
+    CaravanGridCell2D[] cells;
+}
+
+record CaravanVertex3D {
+    CaravanVector3D position;
+    CaravanVector3D normal;
+}
+
+record CaravanTriangle3D {
+    CaravanVertex3D[] vertices;
+    CaravanColor albedo;
+    bool castsShadow;
+    bool twoSidedShadow;
+}
+
+record CaravanScene3D {
+    int width;
+    int height;
+    CaravanColor background;
+    double[] viewProjection;
+    CaravanVector3D cameraPosition;
+    CaravanVector3D directionToLight;
+    CaravanTriangle3D[] triangles;
+}
+
+CaravanColor MakeColor(int r, int g, int b, int a = 255) {
+    assert(r >= 0 && r <= 255, "red must be in 0..255");
+    assert(g >= 0 && g <= 255, "green must be in 0..255");
+    assert(b >= 0 && b <= 255, "blue must be in 0..255");
+    assert(a >= 0 && a <= 255, "alpha must be in 0..255");
+    return new CaravanColor { r = r, g = g, b = b, a = a };
+}
+
+CaravanPoint2D MakePoint2D(double x, double y) {
+    return new CaravanPoint2D { x = x, y = y };
+}
+
+CaravanVector3D MakeVector3D(double x, double y, double z) {
+    return new CaravanVector3D { x = x, y = y, z = z };
+}
+
+CaravanCanvas2D NewCanvas2D(int width, int height, CaravanColor background) {
+    assert(width > 0 && width <= 8192, "canvas width must be in 1..8192");
+    assert(height > 0 && height <= 8192, "canvas height must be in 1..8192");
+    assert(width * height <= 16777216, "canvas exceeds NexusGL pixel limit");
+    return new CaravanCanvas2D {
+        width = width, height = height, background = background, draws = []
+    };
+}
+
+CaravanDraw2D MakeRectangle2D(double x, double y, double width, double height, CaravanColor color) {
+    assert(width > 0 && height > 0, "rectangle size must be positive");
+    return new CaravanDraw2D {
+        kind = "rectangle", x = x, y = y, width = width, height = height,
+        radius = 0, vertices = [], color = color
+    };
+}
+
+CaravanDraw2D MakeCircle2D(double x, double y, double radius, CaravanColor color) {
+    assert(radius > 0, "circle radius must be positive");
+    return new CaravanDraw2D {
+        kind = "circle", x = x, y = y, width = 0, height = 0,
+        radius = radius, vertices = [], color = color
+    };
+}
+
+CaravanDraw2D MakeTriangle2D(CaravanPoint2D a, CaravanPoint2D b, CaravanPoint2D c, CaravanColor color) {
+    return new CaravanDraw2D {
+        kind = "triangle", x = 0, y = 0, width = 0, height = 0, radius = 0,
+        vertices = [a, b, c], color = color
+    };
+}
+
+CaravanCanvas2D AddDraw2D(CaravanCanvas2D canvas, CaravanDraw2D draw) {
+    canvas.draws = canvas.draws.concat([draw]);
+    return canvas;
+}
+
+CaravanGrid2D NewGrid2D(
+    int columns,
+    int rows,
+    double cellSize,
+    string topology,
+    string plane,
+    CaravanColor background
+) {
+    assert(columns > 0 && columns <= 1000000, "grid columns must be in 1..1000000");
+    assert(rows > 0 && rows <= 1000000, "grid rows must be in 1..1000000");
+    assert(cellSize > 0, "grid cell size must be positive");
+    assert(topology == "square" || topology == "hex", "grid topology must be square or hex");
+    assert(plane == "xy" || plane == "xz" || plane == "yz", "grid plane must be xy, xz, or yz");
+    return new CaravanGrid2D {
+        columns = columns, rows = rows, cellSize = cellSize,
+        topology = topology, plane = plane, background = background, cells = []
+    };
+}
+
+CaravanGrid2D SetGridCell2D(
+    CaravanGrid2D grid,
+    int q,
+    int r,
+    string tileId,
+    CaravanColor color
+) {
+    assert(q >= 0 && q < grid.columns, "grid q coordinate is out of bounds");
+    assert(r >= 0 && r < grid.rows, "grid r coordinate is out of bounds");
+    assert(tileId.length > 0, "tile id must not be empty");
+    var replacement = new CaravanGridCell2D { q = q, r = r, tileId = tileId, color = color };
+    for (var i = 0; i < grid.cells.length; i = i + 1) {
+        if (grid.cells[i].q == q && grid.cells[i].r == r) {
+            grid.cells[i] = replacement;
+            return grid;
+        }
+    }
+    grid.cells = grid.cells.concat([replacement]);
+    return grid;
+}
+
+CaravanGrid2D RemoveGridCell2D(CaravanGrid2D grid, int q, int r) {
+    var remaining = [];
+    for (var i = 0; i < grid.cells.length; i = i + 1) {
+        if (grid.cells[i].q != q || grid.cells[i].r != r) {
+            remaining = remaining.concat([grid.cells[i]]);
+        }
+    }
+    grid.cells = remaining;
+    return grid;
+}
+
+CaravanVector3D GridCellCenter3D(CaravanGrid2D grid, int q, int r) {
+    assert(q >= 0 && q < grid.columns, "grid q coordinate is out of bounds");
+    assert(r >= 0 && r < grid.rows, "grid r coordinate is out of bounds");
+    double u = 0;
+    double v = 0;
+    if (grid.topology == "square") {
+        u = (q + 0.5) * grid.cellSize;
+        v = (r + 0.5) * grid.cellSize;
+    } else {
+        // Pointy-top axial hex coordinates, mapped into the selected plane.
+        u = 1.7320508075688772 * grid.cellSize * (q + r * 0.5);
+        v = 1.5 * grid.cellSize * r;
+    }
+    if (grid.plane == "xy") { return MakeVector3D(u, v, 0); }
+    if (grid.plane == "xz") { return MakeVector3D(u, 0, v); }
+    return MakeVector3D(0, u, v);
+}
+
+double[] IdentityViewProjection3D() {
+    return [1.0, 0.0, 0.0, 0.0,
+            0.0, 1.0, 0.0, 0.0,
+            0.0, 0.0, 1.0, 0.0,
+            0.0, 0.0, 0.0, 1.0];
+}
+
+CaravanScene3D NewScene3D(
+    int width,
+    int height,
+    CaravanColor background,
+    double[] viewProjection,
+    CaravanVector3D cameraPosition,
+    CaravanVector3D directionToLight
+) {
+    assert(width > 0 && width <= 8192, "surface width must be in 1..8192");
+    assert(height > 0 && height <= 8192, "surface height must be in 1..8192");
+    assert(width * height <= 16777216, "surface exceeds NexusGL pixel limit");
+    assert(viewProjection.length == 16, "NexusGL viewProjection requires 16 row-major values");
+    return new CaravanScene3D {
+        width = width, height = height, background = background,
+        viewProjection = viewProjection, cameraPosition = cameraPosition,
+        directionToLight = directionToLight, triangles = []
+    };
+}
+
+CaravanTriangle3D MakeTriangle3D(
+    CaravanVertex3D a,
+    CaravanVertex3D b,
+    CaravanVertex3D c,
+    CaravanColor albedo,
+    bool castsShadow = true,
+    bool twoSidedShadow = false
+) {
+    return new CaravanTriangle3D {
+        vertices = [a, b, c], albedo = albedo,
+        castsShadow = castsShadow, twoSidedShadow = twoSidedShadow
+    };
+}
+
+CaravanScene3D AddTriangle3D(CaravanScene3D scene, CaravanTriangle3D triangle) {
+    scene.triangles = scene.triangles.concat([triangle]);
+    return scene;
+}

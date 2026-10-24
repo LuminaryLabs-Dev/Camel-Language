@@ -536,11 +536,11 @@ For audio, distinguish file loading or capture from provider support. Camel can 
 
 ## Page 41 of 50 · Source libraries
 
-Camel libraries are source packages listed in `libraries/index.json`. Each catalog entry declares a name, description, semantic version, Git revision, repository, source path, and allowlist of files. The current catalog includes `standard` and `audio`. The reusable library manager provides discovery, install, update, removal, and installed-source lookup.
+Camel libraries are source packages listed in `libraries/index.json`. Each catalog entry declares a name, description, semantic version, revision, repository, source path, and allowlist of files. Published entries pin a Git commit; workspace-only entries may use `localPath` and a content digest. The current catalog includes `standard`, `audio`, and `caravan`. The reusable library manager provides discovery, install, update, removal, and installed-source lookup.
 
 Discover with `camel library list` or `camel library search <query>`. Install or update by name. Use `CAMEL_HOME` to select the data root; defaults are under local application data on Windows and `~/.camel` on Unix. Programs import package source with `using "@camel/name/file.camel";`.
 
-Remote installation requires access to the catalog and the declared source repository. In a private repository or restricted network, use local checkout imports or an explicit local catalog as appropriate. Do not tell users a remote install works until both catalog and package access have been tested.
+Remote installation requires access to the catalog and the declared source repository. Caravan currently installs from a workspace checkout or bundled payload using its `localPath` and file checksum, so it is testable even while this repository is private. `standard` and `audio` remote installs still require public source access. Do not tell users a remote install works until both catalog and package access have been tested.
 
 \newpage
 

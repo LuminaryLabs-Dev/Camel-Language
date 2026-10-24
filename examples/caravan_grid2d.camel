@@ -1,0 +1,24 @@
+using "@camel/caravan/caravan.camel";
+
+record CaravanGridExample {
+    CaravanGrid2D grid;
+    CaravanGrid2D hexGrid;
+    CaravanVector3D sampleCellCenter;
+    CaravanVector3D hexCellCenter;
+}
+
+workflow CaravanGridExample Main() {
+    CaravanColor paper = MakeColor(22, 27, 36);
+    CaravanGrid2D grid = NewGrid2D(256, 128, 16, "square", "xy", paper);
+    grid = SetGridCell2D(grid, 4, 7, "stone", MakeColor(92, 92, 92));
+    grid = SetGridCell2D(grid, 4, 7, "stone-highlight", MakeColor(148, 148, 148));
+    grid = SetGridCell2D(grid, 5, 7, "stone", MakeColor(92, 92, 92));
+    CaravanGrid2D hexGrid = NewGrid2D(32, 24, 12, "hex", "yz", paper);
+    hexGrid = SetGridCell2D(hexGrid, 3, 4, "marker", MakeColor(220, 190, 80));
+    return new CaravanGridExample {
+        grid = grid,
+        hexGrid = hexGrid,
+        sampleCellCenter = GridCellCenter3D(grid, 4, 7),
+        hexCellCenter = GridCellCenter3D(hexGrid, 3, 4)
+    };
+}

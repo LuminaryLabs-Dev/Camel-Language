@@ -20,6 +20,60 @@ use std::{
 
 type CheckResult = (u64, AnalysisResult);
 
+#[derive(Default)]
+struct ProjectNode {
+    directories: BTreeMap<String, ProjectNode>,
+    files: Vec<PathBuf>,
+}
+impl ProjectNode {
+    fn from_files(root: &Path, files: &[PathBuf]) -> Self {
+        let mut tree = Self::default();
+        for file in files {
+            let relative = file.strip_prefix(root).unwrap_or(file);
+            let mut components = relative.components().peekable();
+            let mut node = &mut tree;
+            while let Some(component) = components.next() {
+                let name = component.as_os_str().to_string_lossy().into_owned();
+                if components.peek().is_some() {
+                    node = node.directories.entry(name).or_default();
+                } else {
+                    node.files.push(file.clone());
+                }
+            }
+        }
+        tree
+    }
+
+    fn show(
+        &self,
+        ui: &mut egui::Ui,
+        relative: &Path,
+        selected: Option<&Path>,
+        open: &mut Option<PathBuf>,
+    ) {
+        for (name, directory) in &self.directories {
+            let path = relative.join(name);
+            egui::CollapsingHeader::new(name.as_str())
+                .id_salt(("project-directory", path.clone()))
+                .default_open(true)
+                .show(ui, |ui| directory.show(ui, &path, selected, open));
+        }
+        for file in &self.files {
+            let label = file
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
+            if ui
+                .selectable_label(selected == Some(file.as_path()), label)
+                .clicked()
+            {
+                *open = Some(file.clone());
+            }
+        }
+    }
+}
+
 struct Argument {
     name: String,
     ty: String,
@@ -213,6 +267,12 @@ fn canonical_path(path: &Path) -> PathBuf {
     path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
 }
 
+fn is_python_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("py"))
+}
+
 fn runtime_error_for_file<'a>(
     diagnostic: Option<&'a RuntimeDiagnostic>,
     file: Option<&Path>,
@@ -266,7 +326,21 @@ impl Studio {
         configure(&cc.egui_ctx);
         let mut app = Self::empty(discover_root(initial.as_deref()));
         if let Some(path) = initial {
-            app.open(&path);
+            if path.is_dir() {
+                app.root = path.canonicalize().unwrap_or(path);
+                app.files = document::scripts(&app.root);
+                if let Some(source) = app
+                    .files
+                    .iter()
+                    .find(|file| is_python_file(file))
+                    .or_else(|| app.files.first())
+                {
+                    let source = source.clone();
+                    app.open(&source);
+                }
+            } else {
+                app.open(&path);
+            }
         }
         if app.tabs.is_empty() {
             app.new_document();
@@ -340,11 +414,16 @@ impl Studio {
     fn save(&mut self, index: usize, save_as: bool) -> bool {
         let existing = self.tabs[index].doc.path.clone();
         let target = if save_as || existing.is_none() {
-            rfd::FileDialog::new()
-                .add_filter("Camel script", &["camel"])
+            let dialog = rfd::FileDialog::new()
                 .set_directory(&self.root)
-                .set_file_name(self.tabs[index].doc.name())
-                .save_file()
+                .set_file_name(self.tabs[index].doc.name());
+            if self.tabs[index].doc.is_camel() {
+                dialog.add_filter("Camel script", &["camel"]).save_file()
+            } else if self.tabs[index].doc.is_python() {
+                dialog.add_filter("Python source", &["py"]).save_file()
+            } else {
+                dialog.save_file()
+            }
         } else {
             existing
         };
@@ -352,7 +431,11 @@ impl Studio {
             return false;
         };
         if target.extension().is_none() {
-            target.set_extension("camel");
+            if self.tabs[index].doc.is_camel() {
+                target.set_extension("camel");
+            } else if self.tabs[index].doc.is_python() {
+                target.set_extension("py");
+            }
         }
         match self.tabs[index].doc.save(&target) {
             Ok(()) => {
@@ -369,6 +452,14 @@ impl Studio {
     }
     fn analyze(&mut self, force: bool) {
         for (index, tab) in self.tabs.iter_mut().enumerate() {
+            if !tab.doc.is_camel() {
+                tab.checking = None;
+                tab.checked = Some(tab.revision);
+                tab.analysis.clear();
+                tab.diagnostics.clear();
+                tab.error = None;
+                continue;
+            }
             if let Some(rx) = &tab.checking {
                 match rx.try_recv() {
                     Ok((revision, result)) => {
@@ -435,6 +526,12 @@ impl Studio {
         }
     }
     fn run(&mut self) {
+        if !self.tabs[self.active].doc.is_camel() {
+            self.notice = Some(
+                "This source file is viewable in Studio; only Camel scripts can run here.".into(),
+            );
+            return;
+        }
         if self.runner.is_some() {
             return;
         }
@@ -689,11 +786,7 @@ impl Studio {
         match action {
             Action::New => self.new_document(),
             Action::Open => {
-                if let Some(p) = rfd::FileDialog::new()
-                    .add_filter("Camel script", &["camel"])
-                    .set_directory(&self.root)
-                    .pick_file()
-                {
+                if let Some(p) = rfd::FileDialog::new().set_directory(&self.root).pick_file() {
                     self.open(&p);
                 }
             }
@@ -704,6 +797,15 @@ impl Studio {
                 {
                     self.root = p;
                     self.files = document::scripts(&self.root);
+                    if let Some(source) = self
+                        .files
+                        .iter()
+                        .find(|file| is_python_file(file))
+                        .or_else(|| self.files.first())
+                        .cloned()
+                    {
+                        self.open(&source);
+                    }
                 }
             }
             Action::Save => {
@@ -713,6 +815,13 @@ impl Studio {
                 self.save(self.active, true);
             }
             Action::Check => {
+                if !self.tabs[self.active].doc.is_camel() {
+                    self.notice = Some(
+                        "This source file is viewable in Studio; Camel checks only .camel files."
+                            .into(),
+                    );
+                    return;
+                }
                 self.tabs[self.active].invalidate_analysis();
                 self.analyze(true);
                 self.output = OutputTab::Problems;
@@ -784,8 +893,8 @@ impl Studio {
             ui.menu_button("File", |ui| {
                 for (text, a) in [
                     ("New workflow    Ctrl+N", Action::New),
-                    ("Open workflow…    Ctrl+O", Action::Open),
-                    ("Open folder…", Action::Folder),
+                    ("Open file…    Ctrl+O", Action::Open),
+                    ("Open project folder…", Action::Folder),
                     ("Save    Ctrl+S", Action::Save),
                     ("Save As…    Ctrl+Shift+S", Action::SaveAs),
                     ("Close script", Action::Close(self.active)),
@@ -851,6 +960,9 @@ impl Studio {
             if ui.button("Open…").clicked() {
                 *action = Some(Action::Open);
             }
+            if ui.button("Folder…").clicked() {
+                *action = Some(Action::Folder);
+            }
             if ui.button("Save").clicked() {
                 *action = Some(Action::Save);
             }
@@ -864,8 +976,15 @@ impl Studio {
             }
             ui.separator();
             if ui
-                .button("Check")
-                .on_hover_text("Validate workflow; never runs agents or records audio")
+                .add_enabled(
+                    self.tabs[self.active].doc.is_camel(),
+                    egui::Button::new("Check"),
+                )
+                .on_hover_text(if !self.tabs[self.active].doc.is_camel() {
+                    "Non-Camel source is shown as text; Camel validation is unavailable"
+                } else {
+                    "Validate workflow; never runs agents or records audio"
+                })
                 .clicked()
             {
                 *action = Some(Action::Check);
@@ -874,6 +993,7 @@ impl Studio {
             let ready = tab.checked == Some(tab.revision)
                 && tab.error.is_none()
                 && !tab.workflow.is_empty()
+                && tab.doc.is_camel()
                 && self.runner.is_none();
             if ui
                 .add_enabled(
@@ -933,30 +1053,15 @@ impl Studio {
         .on_hover_text(self.root.display().to_string());
         ui.separator();
         let mut open = None;
+        let tree = ProjectNode::from_files(&self.root, &self.files);
+        let selected = self.tabs[self.active].doc.path.as_deref();
         egui::ScrollArea::vertical()
             .id_salt("project_files")
             .max_height(ui.available_height() * 0.57)
             .show(ui, |ui| {
-                for path in &self.files {
-                    let selected = self.tabs[self.active]
-                        .doc
-                        .path
-                        .as_ref()
-                        .is_some_and(|p| p == path);
-                    let label = path
-                        .file_stem()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .replace(['_', '-'], " ");
-                    if ui
-                        .selectable_label(selected, RichText::new(label).size(12.0))
-                        .clicked()
-                    {
-                        open = Some(path.clone());
-                    }
-                }
+                tree.show(ui, Path::new(""), selected, &mut open);
                 if self.files.is_empty() {
-                    ui.weak("No project scripts found");
+                    ui.weak("No .camel or .py files found");
                 }
             });
         ui.separator();
@@ -1167,6 +1272,20 @@ impl Studio {
                 });
             });
         ui.separator();
+        if !self.tabs[self.active].doc.is_camel() {
+            let source_kind = if self.tabs[self.active].doc.is_python() {
+                "Python"
+            } else {
+                "Text/source"
+            };
+            ui.label(
+                RichText::new(format!(
+                    "{source_kind} file • view and edit only; Camel runs .camel files"
+                ))
+                .weak(),
+            );
+            ui.separator();
+        }
         if self.find_open {
             let mut next = false;
             ui.horizontal(|ui| {
@@ -1243,12 +1362,14 @@ impl Studio {
             }
         }
         let tab = &mut self.tabs[self.active];
+        let camel_source = tab.doc.is_camel();
         let (changed, cursor) = editor::show(
             ui,
             &mut tab.doc.text,
             egui::Id::new(("editor", tab.id)),
             tab.jump.take(),
             &editor_diagnostics,
+            camel_source,
         );
         tab.cursor = cursor;
         if changed {
@@ -1486,6 +1607,9 @@ fn discover_root(initial: Option<&Path>) -> PathBuf {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let exe = std::env::current_exe().ok();
     if let Some(path) = initial.and_then(|p| p.canonicalize().ok()) {
+        if path.is_dir() {
+            return path;
+        }
         let parent = path.parent().unwrap();
         return parent
             .ancestors()

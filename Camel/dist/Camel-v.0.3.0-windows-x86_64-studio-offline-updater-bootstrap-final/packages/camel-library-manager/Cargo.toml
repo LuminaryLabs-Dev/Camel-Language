@@ -1,0 +1,20 @@
+[package]
+name = "camel-library-manager"
+version = "0.3.0"
+edition = "2021"
+rust-version = "1.88"
+description = "Discover and manage Camel source libraries from a GitHub catalog"
+license = "Apache-2.0"
+repository = "https://github.com/LuminaryLabs-Dev/Camel-Language"
+homepage = "https://github.com/LuminaryLabs-Dev/Camel-Language/tree/main/packages/camel-library-manager"
+readme = "README.md"
+keywords = ["camel", "libraries", "package-manager", "agents"]
+categories = ["development-tools"]
+include = ["src/**", "Cargo.toml", "README.md", "LICENSE"]
+
+[dependencies]
+ring = "0.17"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"

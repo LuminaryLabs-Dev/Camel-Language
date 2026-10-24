@@ -6,6 +6,10 @@
       "version": "0.1.0"
     },
     {
+      "name": "caravan",
+      "version": "0.1.0"
+    },
+    {
       "name": "standard",
       "version": "1.0.0"
     }
@@ -23,6 +27,22 @@
       ],
       "fileChecksums": {
         "note_summarizer.camel": "5c5dd58abf7ed75c44d330eee056e49aaae69fe0727a1670aa9350b40f8e338b"
+      },
+      "dependencies": []
+    },
+    {
+      "name": "caravan",
+      "description": "2D and 3D scene data, sparse grids, and NexusGL adapter primitives.",
+      "version": "0.1.0",
+      "revision": "258e30cc76d917d5344a673891ed4f8413fb1daf328c51c6fca791cad524db4d",
+      "repository": "https://github.com/LuminaryLabs-Dev/Camel-Language",
+      "path": "libraries/caravan",
+      "localPath": "libraries/caravan",
+      "files": [
+        "caravan.camel"
+      ],
+      "fileChecksums": {
+        "caravan.camel": "258e30cc76d917d5344a673891ed4f8413fb1daf328c51c6fca791cad524db4d"
       },
       "dependencies": []
     },

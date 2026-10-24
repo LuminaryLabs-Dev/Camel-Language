@@ -44,6 +44,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if args.first().is_some_and(|s| s == "--gui") {
         return launch_studio(&args[1..]);
     }
+    if args.first().is_some_and(|s| s == "--update") {
+        return launch_local_update(&args[1..]);
+    }
     if args.is_empty() || args.first().is_some_and(|s| s == "--help" || s == "-h") {
         help();
         return Ok(());
@@ -230,6 +233,93 @@ fn launch_studio(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     Command::new(executable).args(args).spawn()?;
     Ok(())
 }
+
+fn launch_local_update(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    if args.len() > 1 {
+        return Err("Usage: camel --update [extracted-distribution-folder]".into());
+    }
+    let bundle = match args.first() {
+        Some(path) => PathBuf::from(path).canonicalize()?,
+        None => env::current_dir()?.canonicalize()?,
+    };
+    let setup_name = if cfg!(windows) {
+        "Camel-Setup.exe"
+    } else {
+        "camel-setup"
+    };
+    let setup = bundle.join(setup_name);
+    if !bundle.join("INSTALLER_BUNDLE.json").is_file() || !setup.is_file() {
+        return Err("The folder must contain an extracted Camel distribution, including INSTALLER_BUNDLE.json and the setup program.".into());
+    }
+
+    let executable = env::current_exe()?.canonicalize()?;
+    let working_directory = env::current_dir().ok();
+    let installation = find_installation(&executable, working_directory.as_deref()).ok_or(
+        "Could not locate an installed Camel folder. Run this from an installed Camel command or keep its bin folder on PATH.",
+    )?;
+
+    Command::new(&setup)
+        .current_dir(&bundle)
+        .args([
+            "--bundle",
+            bundle
+                .to_str()
+                .ok_or("Invalid distribution path encoding.")?,
+        ])
+        .args([
+            "--destination",
+            installation
+                .to_str()
+                .ok_or("Invalid installation path encoding.")?,
+        ])
+        .args(["--wait-for-pid", &std::process::id().to_string()])
+        .spawn()
+        .map_err(|error| format!("Could not start setup at {}: {error}", setup.display()))?;
+    println!(
+        "Setup opened from the local update bundle. Review the destination and install when ready."
+    );
+    Ok(())
+}
+
+fn find_installation(executable: &Path, working_directory: Option<&Path>) -> Option<PathBuf> {
+    let installation_at = |root: &Path| {
+        let root = root.canonicalize().ok()?;
+        let marker = serde_json::from_slice::<serde_json::Value>(
+            &std::fs::read(root.join("INSTALLATION.json")).ok()?,
+        )
+        .ok()?;
+        let recorded = Path::new(marker.get("destination")?.as_str()?)
+            .canonicalize()
+            .ok()?;
+        (marker.get("product")?.as_str()? == "Camel" && recorded == root).then_some(root)
+    };
+    let installation_for = |candidate: &Path| {
+        let candidate = candidate.canonicalize().ok()?;
+        installation_at(candidate.parent()?.parent()?)
+    };
+
+    if let Some(installation) = installation_for(executable) {
+        return Some(installation);
+    }
+    let camel_name = format!("camel{}", env::consts::EXE_SUFFIX);
+    if let Some(paths) = env::var_os("PATH") {
+        for directory in env::split_paths(&paths) {
+            let candidate = directory.join(&camel_name);
+            if candidate.canonicalize().ok().as_deref() != Some(executable) {
+                if let Some(installation) = installation_for(&candidate) {
+                    return Some(installation);
+                }
+            }
+        }
+    }
+    if let Some(working_directory) = working_directory {
+        if let Some(installation) = installation_at(working_directory) {
+            return Some(installation);
+        }
+    }
+    None
+}
+
 fn studio_on_path() -> Option<PathBuf> {
     env::var_os("PATH").and_then(|paths| {
         env::split_paths(&paths)
@@ -471,6 +561,7 @@ fn help() {
   camel [run] <file.camel> [--workflow Main] [--json] [--trace] [--steps N] [--tool-calls N] [--tokens N] [--timeout-seconds N] [--approve capability]... -- [arguments]
   camel record <file.camel> [--seconds N|--until-enter] [--save-recording path] [--approve microphone] -- [arguments]
   camel --gui [file.camel]
+  camel --update [extracted-distribution-folder]
   camel library [list|search <query>|install <name>|update <name>|remove <name>] [--catalog <path-or-url>]
 
 record is a compatibility command that overrides record(seconds) host input.
@@ -487,6 +578,7 @@ Use --checkpoint <path> with checkpoint("label"); statements to save workflow st
 <path> writes a deterministic report and requires replay mode. With --resume, recording
 continues from the cassette position saved in the checkpoint.
 --gui launches Camel Studio; set CAMEL_STUDIO_PATH to select its executable.
+--update opens setup from a local extracted distribution (defaults to the current folder); it does not use the internet.
 The camel-audio-runtime executable is an alias for this same interpreter."#
     );
 }

@@ -24,8 +24,8 @@ When the CLI and Studio are installed together, run `camel --gui` to open Studio
 
 ## Editor and project
 
-- **Editor:** the central pane edits Camel source, with tabs, find, outline, and diagnostics. New launches open a fresh starter document; pass a script path on the command line to open a specific file.
-- **Project:** the left browser lists user scripts. When running from a full Camel distribution, shipped examples and standard-library files are excluded from that list; use Open to choose a file explicitly. Build caches, Git directories, symlinks, and historical `dist` copies are excluded. Scanning is limited to 500 files and 12 directory levels.
+- **Editor:** the central pane edits Camel source, with tabs, find, outline, and diagnostics. Python `.py` files can also be opened and viewed or edited as plain text; Camel does not validate or run them. New launches open a fresh starter document; pass a script path or project folder on the command line to open it.
+- **Project:** use **Folder…** or **File → Open project folder…** to select a project directory. The left browser recursively finds `.camel` and `.py` files and organizes them under expandable relative folders. **Open…** can still choose any UTF-8 text file. Python files are displayed as plain text and are not validated or run. Common build caches, virtual environments, Git directories, and symlinks are excluded.
 - **Setup:** select a workflow and enter its inputs. Agents, models, integrations, data types, and safety rules appear in the inspector.
 - **Runs:** live workflow, agent, model-request, tool, and microphone events with status and elapsed time. Console contains workflow logs and worker status; Result contains the returned JSON; Problems groups syntax, analysis, type, lint, and runtime diagnostics with source navigation.
 - **Checkpoint and replay:** the per-run approval dialog accepts a checkpoint file, optional resume mode, persisted cassette record/replay, and an evaluation report destination. Replays are bound to the analyzed source and skip captured effects; checkpoint state and cassette files remain local run artifacts.

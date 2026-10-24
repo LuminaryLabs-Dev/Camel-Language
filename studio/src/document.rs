@@ -24,12 +24,12 @@ impl Document {
         let bytes = fs::read(&path).map_err(|e| e.to_string())?;
         if bytes.len() > MAX_SOURCE_BYTES {
             return Err(format!(
-                "Camel scripts cannot exceed {} MiB",
+                "Source files cannot exceed {} MiB",
                 MAX_SOURCE_BYTES / (1024 * 1024)
             ));
         }
         let text = String::from_utf8(bytes.clone())
-            .map_err(|_| "Camel scripts must be UTF-8".to_owned())?;
+            .map_err(|_| "Source files must be UTF-8 text".to_owned())?;
         Ok(Self {
             path: Some(path),
             text,
@@ -46,10 +46,24 @@ impl Document {
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| "Untitled.camel".into())
     }
+    pub fn is_python(&self) -> bool {
+        self.path
+            .as_ref()
+            .and_then(|path| path.extension())
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("py"))
+    }
+    pub fn is_camel(&self) -> bool {
+        self.path.as_ref().is_none_or(|path| {
+            path.extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("camel"))
+        })
+    }
     pub fn save(&mut self, target: &Path) -> Result<(), String> {
         if self.text.len() > MAX_SOURCE_BYTES {
             return Err(format!(
-                "Camel scripts cannot exceed {} MiB; edits remain in memory.",
+                "Source files cannot exceed {} MiB; edits remain in memory.",
                 MAX_SOURCE_BYTES / (1024 * 1024)
             ));
         }
@@ -105,32 +119,15 @@ impl Document {
     }
 }
 
-/// A bounded project inventory; never descends into build output or symlink directories.
+/// Recursively inventory Camel and Python source files, excluding generated environments.
 pub fn scripts(root: &Path) -> Vec<PathBuf> {
-    // Installed project examples and the standard library are implementation
-    // payload, not the user's editable project. Keep the editor inventory scoped
-    // to user scripts while leaving explicit Open available for any file.
-    let has_distributable_sources =
-        root.join("Camel/examples").is_dir() && root.join("libraries/index.json").is_file();
-    fn visit(
-        root: &Path,
-        project_root: &Path,
-        has_distributable_sources: bool,
-        out: &mut Vec<PathBuf>,
-        depth: usize,
-    ) {
-        if depth > 12 || out.len() >= 500 {
-            return;
-        }
+    fn visit(root: &Path, out: &mut Vec<PathBuf>) {
         let Ok(entries) = fs::read_dir(root) else {
             return;
         };
         let mut entries: Vec<_> = entries.flatten().collect();
         entries.sort_by_key(|e| e.path());
         for entry in entries {
-            if out.len() >= 500 {
-                break;
-            }
             let Ok(kind) = entry.file_type() else {
                 continue;
             };
@@ -140,31 +137,42 @@ pub fn scripts(root: &Path) -> Vec<PathBuf> {
             let path = entry.path();
             if kind.is_dir() {
                 let name = entry.file_name();
-                if root == project_root
-                    && has_distributable_sources
-                    && matches!(name.to_string_lossy().as_ref(), "Camel" | "libraries")
+                if ![
+                    ".git",
+                    "target",
+                    "dist",
+                    "build",
+                    "node_modules",
+                    ".codex",
+                    ".venv",
+                    "venv",
+                    "__pycache__",
+                    ".pytest_cache",
+                    ".mypy_cache",
+                    ".ruff_cache",
+                    ".tox",
+                    ".nox",
+                ]
+                .contains(&name.to_string_lossy().as_ref())
                 {
-                    continue;
+                    visit(&path, out);
                 }
-                if ![".git", "target", "dist", "node_modules", ".codex"]
-                    .contains(&name.to_string_lossy().as_ref())
-                {
-                    visit(
-                        &path,
-                        project_root,
-                        has_distributable_sources,
-                        out,
-                        depth + 1,
-                    );
-                }
-            } else if path.extension().is_some_and(|e| e == "camel") {
+            } else if is_project_source_file(&path) {
                 out.push(path);
             }
         }
     }
     let mut out = Vec::new();
-    visit(root, root, has_distributable_sources, &mut out, 0);
+    visit(root, &mut out);
     out
+}
+
+fn is_project_source_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            extension.eq_ignore_ascii_case("camel") || extension.eq_ignore_ascii_case("py")
+        })
 }
 
 #[cfg(test)]

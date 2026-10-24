@@ -28,6 +28,9 @@ pub struct Library {
     pub revision: String,
     pub repository: String,
     pub path: String,
+    /// Optional in-bundle source path for workspace and offline libraries.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_path: Option<String>,
     pub files: Vec<String>,
     #[serde(default)]
     pub file_checksums: BTreeMap<String, String>,
@@ -92,27 +95,58 @@ pub fn resolve_import(import: &str) -> Result<PathBuf> {
 
 /// Read a JSON file or URL, preferring this repository's catalog when omitted.
 pub fn catalog(source: Option<&str>) -> Result<Catalog> {
-    let installed_catalog = std::env::current_exe()
+    let text = match source {
+        Some(path) if !path.starts_with("http://") && !path.starts_with("https://") => {
+            fs::read_to_string(path)?
+        }
+        Some(url) => client()?.get(url).send()?.error_for_status()?.text()?,
+        None => {
+            if let Some(path) = installed_catalog() {
+                fs::read_to_string(path)?
+            } else if Path::new(CATALOG_PATH).is_file() {
+                fs::read_to_string(CATALOG_PATH)?
+            } else {
+                client()?
+                    .get(CATALOG_URL)
+                    .send()?
+                    .error_for_status()?
+                    .text()?
+            }
+        }
+    };
+    parse_catalog(&text)
+}
+
+/// Load the catalog bundled with the executable or source checkout, without network access.
+/// The embedded snapshot keeps Studio usable when the registry is unreachable.
+pub fn catalog_local() -> Result<Catalog> {
+    let text = if let Some(path) = installed_catalog() {
+        fs::read_to_string(path)?
+    } else if Path::new(CATALOG_PATH).is_file() {
+        fs::read_to_string(CATALOG_PATH)?
+    } else {
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../libraries/index.json"
+        ))
+        .into()
+    };
+    parse_catalog(&text)
+}
+
+fn installed_catalog() -> Option<PathBuf> {
+    std::env::current_exe()
         .ok()
         .and_then(|exe| {
             exe.parent()
                 .and_then(Path::parent)
                 .map(|root| root.join("libraries/index.json"))
         })
-        .filter(|path| path.is_file());
-    let text = match source {
-        Some(path) if !path.starts_with("http://") && !path.starts_with("https://") => {
-            fs::read_to_string(path)?
-        }
-        None if installed_catalog.is_some() => fs::read_to_string(installed_catalog.unwrap())?,
-        None if Path::new(CATALOG_PATH).is_file() => fs::read_to_string(CATALOG_PATH)?,
-        _ => client()?
-            .get(source.unwrap_or(CATALOG_URL))
-            .send()?
-            .error_for_status()?
-            .text()?,
-    };
-    let catalog: Catalog = serde_json::from_str(&text)?;
+        .filter(|path| path.is_file())
+}
+
+fn parse_catalog(text: &str) -> Result<Catalog> {
+    let catalog: Catalog = serde_json::from_str(text)?;
     if catalog.schema_version != 3 {
         return Err("unsupported Camel catalog schemaVersion; expected 3".into());
     }
@@ -136,17 +170,34 @@ pub fn install(library: &Library) -> Result<PathBuf> {
     let staging = tempfile::Builder::new()
         .prefix(".camel-library-")
         .tempdir_in(&root)?;
-    let client = client()?;
     for relative in &library.files {
         let target = staging.path().join(relative);
-        let url = format!(
-            "https://raw.githubusercontent.com/{}/{}/{}/{}",
-            library.repository.trim_start_matches("https://github.com/"),
-            library.revision,
-            library.path,
-            relative
-        );
-        let bytes = client.get(url).send()?.error_for_status()?.bytes()?;
+        let bytes = if let Some(source_root) = local_library_root(library)? {
+            let path = source_root.join(relative).canonicalize()?;
+            if !path.starts_with(&source_root) || !path.is_file() {
+                return Err(format!(
+                    "local source for '{}' escapes its package or is not a file",
+                    library.name
+                )
+                .into());
+            }
+            fs::read(path)?
+        } else {
+            let client = client()?;
+            let url = format!(
+                "https://raw.githubusercontent.com/{}/{}/{}/{}",
+                library.repository.trim_start_matches("https://github.com/"),
+                library.revision,
+                library.path,
+                relative
+            );
+            client
+                .get(url)
+                .send()?
+                .error_for_status()?
+                .bytes()?
+                .to_vec()
+        };
         verify_file_checksum(library, relative, &bytes)?;
         if let Some(parent) = target.parent() {
             fs::create_dir_all(parent)?;
@@ -395,11 +446,16 @@ pub fn validate(library: &Library) -> Result<()> {
         });
     let mut files = BTreeSet::new();
     let mut dependencies = BTreeSet::new();
+    let valid_local_path = library
+        .local_path
+        .as_deref()
+        .is_none_or(|path| path == format!("libraries/{}", library.name));
     if !valid_name(&library.name)
         || !valid_repository
         || !valid_relative(&library.path)
         || !valid_version(&library.version)
         || !valid_revision(&library.revision)
+        || !valid_local_path
         || library.files.is_empty()
         || library.files.iter().any(|file| {
             !valid_relative(file)
@@ -420,9 +476,45 @@ pub fn validate(library: &Library) -> Result<()> {
                 || !dependencies.insert(dependency.name.as_str())
         })
     {
-        return Err(format!("invalid library '{}': expected a safe name, semantic version, immutable commit revision, GitHub HTTPS repository, relative directory, unique file allowlist, SHA-256 checksums for every file, and valid dependencies", library.name).into());
+        return Err(format!("invalid library '{}': expected a safe name, semantic version, immutable revision or local content digest, GitHub HTTPS repository, relative directory, unique file allowlist, SHA-256 checksums for every file, and valid dependencies", library.name).into());
     }
     Ok(())
+}
+
+fn local_library_root(library: &Library) -> Result<Option<PathBuf>> {
+    let Some(relative) = library.local_path.as_deref() else {
+        return Ok(None);
+    };
+    let mut candidates = Vec::new();
+    if let Some(catalog) = installed_catalog() {
+        if let Some(root) = catalog.parent().and_then(Path::parent) {
+            candidates.push(root.to_path_buf());
+        }
+    }
+    if let Some(root) = Path::new(CATALOG_PATH).parent().and_then(Path::parent) {
+        candidates.push(root.to_path_buf());
+    }
+    for root in candidates {
+        let Ok(canonical_root) = root.canonicalize() else {
+            continue;
+        };
+        let Ok(canonical_source) = root.join(relative).canonicalize() else {
+            continue;
+        };
+        if !canonical_source.starts_with(&canonical_root) || !canonical_source.is_dir() {
+            return Err(format!(
+                "local source path for '{}' is outside its catalog root",
+                library.name
+            )
+            .into());
+        }
+        return Ok(Some(canonical_source));
+    }
+    Err(format!(
+        "local source for '{}' is unavailable; use a distribution that includes {}",
+        library.name, relative
+    )
+    .into())
 }
 
 fn verify_file_checksum(library: &Library, relative: &str, bytes: &[u8]) -> Result<()> {
@@ -516,6 +608,7 @@ mod tests {
             revision: "0123456789abcdef0123456789abcdef01234567".into(),
             repository: "https://github.com/LuminaryLabs-Dev/Camel-Language".into(),
             path: "libraries/standard".into(),
+            local_path: None,
             files: vec!["core.camel".into()],
             file_checksums: BTreeMap::from([("core.camel".into(), "a".repeat(64))]),
             dependencies: Vec::new(),

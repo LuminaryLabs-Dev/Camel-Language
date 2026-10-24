@@ -1,0 +1,24 @@
+[package]
+name = "camel-audio-runtime"
+version = "0.3.0"
+edition = "2021"
+rust-version = "1.88"
+description = "Source-backed Camel interpreter with first-class agents and tools"
+default-run = "camel"
+license = "Apache-2.0"
+
+[[bin]]
+name = "camel"
+path = "src/main.rs"
+
+[dependencies]
+camel-library-manager = { version = "0.3.0", path = "../packages/camel-library-manager" }
+base64 = "0.22"
+cpal = "0.15"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+
+[dev-dependencies]
+tempfile = "3"

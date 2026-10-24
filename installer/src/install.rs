@@ -179,7 +179,26 @@ fn commit(staging: &Path, destination: &Path, plan: &Plan) -> Result<()> {
     let backup = holder.path().join("previous");
     let had_previous = destination.exists();
     if had_previous {
-        fs::rename(destination, &backup)?;
+        if let Err(error) = fs::rename(destination, &backup) {
+            #[cfg(windows)]
+            {
+                return commit_in_place(staging, destination, plan, holder.path()).map_err(
+                    |fallback| {
+                        format!(
+                            "Could not replace the existing Camel folder {} ({error}); file-by-file update also failed: {fallback}",
+                            destination.display()
+                        )
+                        .into()
+                    },
+                );
+            }
+            #[cfg(not(windows))]
+            return Err(format!(
+                "Could not move the existing Camel folder {} aside for replacement: {error}",
+                destination.display()
+            )
+            .into());
+        }
     }
     if let Err(error) = fs::rename(staging, destination) {
         if had_previous {
@@ -208,6 +227,104 @@ fn commit(staging: &Path, destination: &Path, plan: &Plan) -> Result<()> {
         return Err(error);
     }
     // Backup cleanup is managed by the temporary directory after a successful commit.
+    Ok(())
+}
+
+#[cfg(windows)]
+fn commit_in_place(
+    staging: &Path,
+    destination: &Path,
+    plan: &Plan,
+    backup_root: &Path,
+) -> Result<()> {
+    use tempfile::NamedTempFile;
+
+    #[derive(Debug)]
+    struct ChangedFile {
+        destination: PathBuf,
+        backup: Option<PathBuf>,
+    }
+
+    fn replace(source: &Path, destination: &Path) -> Result<()> {
+        let parent = destination.parent().ok_or("Missing destination parent.")?;
+        fs::create_dir_all(parent)?;
+        let temporary = NamedTempFile::new_in(parent)?;
+        fs::copy(source, temporary.path())?;
+        temporary
+            .persist(destination)
+            .map_err(|error| error.error)?;
+        Ok(())
+    }
+
+    fn rollback(changed: &[ChangedFile]) -> Result<()> {
+        for file in changed.iter().rev() {
+            if let Some(backup) = &file.backup {
+                replace(backup, &file.destination).map_err(|error| {
+                    format!("Could not restore {}: {error}", file.destination.display())
+                })?;
+            } else if file.destination.exists() {
+                fs::remove_file(&file.destination).map_err(|error| {
+                    format!("Could not remove {}: {error}", file.destination.display())
+                })?;
+            }
+        }
+        Ok(())
+    }
+
+    fn files_under(root: &Path, directory: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
+        for entry in fs::read_dir(directory)? {
+            let path = entry?.path();
+            let file_type = fs::symlink_metadata(&path)?.file_type();
+            if file_type.is_dir() {
+                files_under(root, &path, files)?;
+            } else if file_type.is_file() {
+                files.push(path.strip_prefix(root)?.to_path_buf());
+            } else {
+                return Err(format!("Unsupported staged file type: {}", path.display()).into());
+            }
+        }
+        Ok(())
+    }
+
+    fs::create_dir_all(backup_root)?;
+    let mut files = Vec::new();
+    files_under(staging, staging, &mut files)?;
+    let mut changed = Vec::new();
+    let update = (|| -> Result<()> {
+        for relative in files {
+            let source = staging.join(&relative);
+            let target = destination.join(&relative);
+            let backup = if target.exists() {
+                let path = backup_root.join(&relative);
+                fs::create_dir_all(path.parent().ok_or("Missing backup parent.")?)?;
+                fs::copy(&target, &path)
+                    .map_err(|error| format!("Could not back up {}: {error}", target.display()))?;
+                Some(path)
+            } else {
+                None
+            };
+            replace(&source, &target)
+                .map_err(|error| format!("Could not replace {}: {error}", target.display()))?;
+            changed.push(ChangedFile {
+                destination: target,
+                backup,
+            });
+        }
+        Ok(())
+    })();
+    if let Err(error) = update {
+        rollback(&changed).map_err(|restore| {
+            format!("File-by-file update failed: {error}. File rollback failed: {restore}")
+        })?;
+        return Err(error);
+    }
+
+    if let Err(error) = plan.apply() {
+        rollback(&changed).map_err(|restore| {
+            format!("PATH setup failed: {error}. File rollback failed: {restore}")
+        })?;
+        return Err(error);
+    }
     Ok(())
 }
 

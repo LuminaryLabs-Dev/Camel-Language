@@ -212,8 +212,12 @@ impl LibraryManager {
         if let Err(error) = thread::Builder::new()
             .name("studio-library-catalog".into())
             .spawn(move || {
-                let source = remote.then_some(libraries::CATALOG_URL);
-                let result = libraries::catalog(source).map_err(|error| error.to_string());
+                let result = if remote {
+                    libraries::catalog(Some(libraries::CATALOG_URL))
+                } else {
+                    libraries::catalog_local()
+                }
+                .map_err(|error| error.to_string());
                 let _ = tx.send(Update::Catalog(result));
             })
         {

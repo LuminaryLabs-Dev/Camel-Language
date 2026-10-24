@@ -1,0 +1,11 @@
+version "0.2";
+
+using "../../libraries/audio/note_summarizer.camel";
+
+workflow AudioNote Main(string topic = "general", int durationSeconds = 30) {
+    return SummarizeAudioNote(record(durationSeconds), topic);
+}
+
+workflow AudioNote FromFile(string audioPath, string topic = "general") {
+    return SummarizeAudioNote(audio.load(audioPath), topic);
+}

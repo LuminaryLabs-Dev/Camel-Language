@@ -1,0 +1,52 @@
+version "0.2";
+
+// Run with CAMEL_LM_ENDPOINT=http://localhost:11434.
+// Load two models in Tools > Manage Models, then set these names to match.
+record Review {
+    string[] findings;
+    string[] uncertainties;
+}
+
+record Comparison {
+    string question;
+    Review analyst;
+    Review skeptic;
+}
+
+policy NoTools {
+    maxToolCalls = 0;
+    allowNetwork = false;
+    allowFileRead = false;
+    allowFileWrite = false;
+    allowShell = false;
+}
+
+agent Analyst {
+    model = env("CAMEL_ANALYST_MODEL", "hf-analyst-model");
+    system = "Analyze the question carefully. Return concise evidence-based findings and explicit uncertainties.";
+    response = Review;
+    policy = NoTools;
+    temperature = 0.2;
+    maxTurns = 2;
+}
+
+agent Skeptic {
+    model = env("CAMEL_SKEPTIC_MODEL", "hf-skeptic-model");
+    system = "Independently challenge assumptions in the question. Return concise counterpoints and explicit uncertainties.";
+    response = Review;
+    policy = NoTools;
+    temperature = 0.5;
+    maxTurns = 2;
+}
+
+workflow Comparison Main(string question = "Should we launch the new service this month?") {
+    Task<AgentResult> analystWork = spawn Analyst.run(question);
+    Task<AgentResult> skepticWork = spawn Skeptic.run(question);
+    AgentResult analyst = await analystWork;
+    AgentResult skeptic = await skepticWork;
+    return new Comparison {
+        question = question,
+        analyst = analyst.data,
+        skeptic = skeptic.data
+    };
+}

@@ -1,0 +1,33 @@
+version "0.2";
+
+using "modules/integer_math.camel";
+
+record Report {
+    int count;
+    int fibonacci;
+    int sumOfSquares;
+    string message;
+}
+
+workflow Report Main(int count = 6) {
+    assert(count >= 0 && count <= 50, "Count must be 0..50");
+    Function calculate = Fibonacci;
+    Task<int> pending = spawn SumSquares(count);
+    int fibonacci = calculate(count);
+    int squares = await pending;
+
+    try {
+        assert(await pending == squares, "Await must not repeat work");
+    } catch (error) {
+        throw error.message;
+    } finally {
+        log("Completed ordinary programming without an LLM.");
+    }
+
+    return new Report {
+        count = count,
+        fibonacci = fibonacci,
+        sumOfSquares = squares,
+        message = $"Computed {count} values with an imported module."
+    };
+}

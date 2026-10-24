@@ -1,0 +1,35 @@
+using "@camel/caravan/caravan.camel";
+
+record CaravanApiExample {
+    CaravanCanvas2D canvas;
+    CaravanScene3D scene;
+}
+
+workflow CaravanApiExample Main() {
+    CaravanColor paper = MakeColor(22, 27, 36);
+    CaravanColor gold = MakeColor(220, 190, 80);
+    CaravanCanvas2D canvas = NewCanvas2D(640, 360, paper);
+    canvas = AddDraw2D(canvas, MakeRectangle2D(0, 300, 640, 60, MakeColor(45, 45, 45)));
+    canvas = AddDraw2D(canvas, MakeCircle2D(120, 250, 12, gold));
+    canvas = AddDraw2D(canvas, MakeTriangle2D(
+        MakePoint2D(200, 280), MakePoint2D(230, 220), MakePoint2D(260, 280), gold
+    ));
+
+    CaravanVector3D camera = MakeVector3D(0, 0, 5);
+    CaravanVector3D light = MakeVector3D(-0.5, 1, 0.8);
+    CaravanScene3D scene = NewScene3D(
+        640, 360, paper, IdentityViewProjection3D(), camera, light
+    );
+    CaravanVector3D normal = MakeVector3D(0, 0, 1);
+    CaravanVertex3D a = new CaravanVertex3D {
+        position = MakeVector3D(-0.5, -0.5, 0), normal = normal
+    };
+    CaravanVertex3D b = new CaravanVertex3D {
+        position = MakeVector3D(0.5, -0.5, 0), normal = normal
+    };
+    CaravanVertex3D c = new CaravanVertex3D {
+        position = MakeVector3D(0, 0.5, 0), normal = normal
+    };
+    scene = AddTriangle3D(scene, MakeTriangle3D(a, b, c, gold));
+    return new CaravanApiExample { canvas = canvas, scene = scene };
+}

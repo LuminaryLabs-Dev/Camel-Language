@@ -1,0 +1,76 @@
+version "0.2";
+
+record Review {
+    string summary;
+    string[] risks;
+    int score;
+}
+
+policy NoTools {
+    maxToolCalls = 0;
+    allowNetwork = false;
+    allowFileRead = false;
+    allowFileWrite = false;
+    allowShell = false;
+}
+
+agent Reviewer1 {
+    model = env("CAMEL_STRESS_MODEL_1", "");
+    system = "Return a concise structured stress-test review. Use score 0..100 and list concrete risks.";
+    response = Review;
+    policy = NoTools;
+    maxTurns = 1;
+    retries = 0;
+}
+
+agent Reviewer2 {
+    model = env("CAMEL_STRESS_MODEL_2", "");
+    system = "Return a concise structured stress-test review. Use score 0..100 and list concrete risks.";
+    response = Review;
+    policy = NoTools;
+    maxTurns = 1;
+    retries = 0;
+}
+
+agent Reviewer3 {
+    model = env("CAMEL_STRESS_MODEL_3", "");
+    system = "Return a concise structured stress-test review. Use score 0..100 and list concrete risks.";
+    response = Review;
+    policy = NoTools;
+    maxTurns = 1;
+    retries = 0;
+}
+
+agent Reviewer4 {
+    model = env("CAMEL_STRESS_MODEL_4", "");
+    system = "Return a concise structured stress-test review. Use score 0..100 and list concrete risks.";
+    response = Review;
+    policy = NoTools;
+    maxTurns = 1;
+    retries = 0;
+}
+
+agent Reviewer5 {
+    model = env("CAMEL_STRESS_MODEL_5", "");
+    system = "Return a concise structured stress-test review. Use score 0..100 and list concrete risks.";
+    response = Review;
+    policy = NoTools;
+    maxTurns = 1;
+    retries = 0;
+}
+
+workflow Review[] Main(string prompt = "Review the Camel release candidate for correctness, resource exhaustion, and safety risks. Return a concise summary, concrete risks, and a score from 0 to 100.") {
+    Task<AgentResult> work1 = spawn Reviewer1.run(prompt);
+    Task<AgentResult> work2 = spawn Reviewer2.run(prompt);
+    Task<AgentResult> work3 = spawn Reviewer3.run(prompt);
+    Task<AgentResult> work4 = spawn Reviewer4.run(prompt);
+    Task<AgentResult> work5 = spawn Reviewer5.run(prompt);
+
+    AgentResult result1 = await work1;
+    AgentResult result2 = await work2;
+    AgentResult result3 = await work3;
+    AgentResult result4 = await work4;
+    AgentResult result5 = await work5;
+
+    return [result1.data, result2.data, result3.data, result4.data, result5.data];
+}

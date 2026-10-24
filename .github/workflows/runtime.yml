@@ -24,7 +24,7 @@ jobs:
         run: |
           $expected = (Get-FileHash libraries/Camel.lock -Algorithm SHA256).Hash
           cargo run --manifest-path runtime/Cargo.toml --locked -- library verify-lock libraries/Camel.lock
-          cargo run --manifest-path runtime/Cargo.toml --locked -- library lock standard audio --catalog libraries/index.json --output (Join-Path $env:RUNNER_TEMP 'Camel.lock')
+          cargo run --manifest-path runtime/Cargo.toml --locked -- library lock standard audio caravan --catalog libraries/index.json --output (Join-Path $env:RUNNER_TEMP 'Camel.lock')
           $actual = (Get-FileHash (Join-Path $env:RUNNER_TEMP 'Camel.lock') -Algorithm SHA256).Hash
           if ($actual -ne $expected) { throw 'Generated library lock differs from the committed lock.' }
       - run: cargo run --manifest-path runtime/Cargo.toml --locked -- check Camel/examples/audio_note_summarizer.camel

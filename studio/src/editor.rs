@@ -30,6 +30,7 @@ pub fn show(
     id: egui::Id,
     jump: Option<(usize, usize)>,
     diagnostics: &[Diagnostic],
+    camel_source: bool,
 ) -> (bool, (usize, usize)) {
     if let Some((line, column)) = jump {
         let mut state = egui::TextEdit::load_state(ui.ctx(), id).unwrap_or_default();
@@ -70,8 +71,24 @@ pub fn show(
                         );
                     }
                 }
+                let layout_font = font.clone();
                 let mut layout = |ui: &egui::Ui, buf: &dyn egui::TextBuffer, _: f32| {
-                    ui.fonts_mut(|f| f.layout_job(highlight(buf.as_str(), diagnostics)))
+                    let job = if camel_source {
+                        highlight(buf.as_str(), diagnostics)
+                    } else {
+                        let mut job = LayoutJob::default();
+                        job.append(
+                            buf.as_str(),
+                            0.0,
+                            TextFormat {
+                                font_id: layout_font.clone(),
+                                color: Color32::from_rgb(222, 225, 230),
+                                ..Default::default()
+                            },
+                        );
+                        job
+                    };
+                    ui.fonts_mut(|f| f.layout_job(job))
                 };
                 let out = egui::TextEdit::multiline(text)
                     .id(id)

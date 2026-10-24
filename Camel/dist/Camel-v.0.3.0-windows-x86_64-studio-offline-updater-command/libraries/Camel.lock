@@ -1,0 +1,65 @@
+{
+  "lockVersion": 1,
+  "roots": [
+    {
+      "name": "audio",
+      "version": "0.1.0"
+    },
+    {
+      "name": "caravan",
+      "version": "0.1.0"
+    },
+    {
+      "name": "standard",
+      "version": "1.0.0"
+    }
+  ],
+  "libraries": [
+    {
+      "name": "audio",
+      "description": "Audio transcription and topic-focused note summarization agents.",
+      "version": "0.1.0",
+      "revision": "e7b770737516558652d38642583c6db184fd3fd4",
+      "repository": "https://github.com/LuminaryLabs-Dev/Camel-Language",
+      "path": "libraries/audio",
+      "files": [
+        "note_summarizer.camel"
+      ],
+      "fileChecksums": {
+        "note_summarizer.camel": "5c5dd58abf7ed75c44d330eee056e49aaae69fe0727a1670aa9350b40f8e338b"
+      },
+      "dependencies": []
+    },
+    {
+      "name": "caravan",
+      "description": "2D and 3D scene data, sparse grids, and NexusGL adapter primitives.",
+      "version": "0.1.0",
+      "revision": "258e30cc76d917d5344a673891ed4f8413fb1daf328c51c6fca791cad524db4d",
+      "repository": "https://github.com/LuminaryLabs-Dev/Camel-Language",
+      "path": "libraries/caravan",
+      "localPath": "libraries/caravan",
+      "files": [
+        "caravan.camel"
+      ],
+      "fileChecksums": {
+        "caravan.camel": "258e30cc76d917d5344a673891ed4f8413fb1daf328c51c6fca791cad524db4d"
+      },
+      "dependencies": []
+    },
+    {
+      "name": "standard",
+      "description": "String joining helper.",
+      "version": "1.0.0",
+      "revision": "e7b770737516558652d38642583c6db184fd3fd4",
+      "repository": "https://github.com/LuminaryLabs-Dev/Camel-Language",
+      "path": "libraries/standard",
+      "files": [
+        "core.camel"
+      ],
+      "fileChecksums": {
+        "core.camel": "7d5a41437e1bcb1a9bce86a037d5c3a076abf8b9b8fd489ec214915ca334be2b"
+      },
+      "dependencies": []
+    }
+  ]
+}
